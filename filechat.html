@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en" data-theme="archive" data-density="balanced" data-type="mix">
+<head>
+<meta charset="utf-8">
+<title>FileChat — local-first reading workbench</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="center.jsx"></script>
+<script type="text/babel" src="right-panel.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "atelier",
+  "type": "mix",
+  "density": "balanced",
+  "state": "answered",
+  "rightTab": "citations",
+  "view": "desktop"
+}/*EDITMODE-END*/;
+
+function App() {
+  // Persist cfg in localStorage so refreshes keep the state
+  const [cfg, setCfg] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('fc-cfg'));
+      return { ...TWEAK_DEFAULTS, ...(s || {}) };
+    } catch { return TWEAK_DEFAULTS; }
+  });
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
+  const [railMode, setRailMode] = useState('sessions');
+  const [rightOpen, setRightOpen] = useState(true);
+  const [composer, setComposer] = useState("");
+  const [sent, setSent] = useState(null);
+
+  useEffect(() => {
+    localStorage.setItem('fc-cfg', JSON.stringify(cfg));
+    document.documentElement.setAttribute('data-theme', cfg.theme);
+    document.documentElement.setAttribute('data-type', cfg.type);
+    document.documentElement.setAttribute('data-density', cfg.density);
+  }, [cfg]);
+
+  // Edit-mode protocol
+  useEffect(() => {
+    const on = (e) => {
+      if (!e.data || typeof e.data !== 'object') return;
+      if (e.data.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (e.data.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', on);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', on);
+  }, []);
+
+  // persist cfg edits to disk via host
+  const applyCfg = (next) => {
+    setCfg(next);
+    window.parent.postMessage({ type: '__edit_mode_set_keys', edits: next }, '*');
+  };
+
+  // Files per state
+  const filesByState = {
+    empty: EMPTY_FILES,
+    selected: SELECTED_FILES,
+    processing: PROCESSING_FILES,
+    ready: READY_FILES,
+    answered: READY_FILES,
+  };
+  const files = filesByState[cfg.state] || EMPTY_FILES;
+
+  if (cfg.view === 'mobile') {
+    return (
+      <>
+        <MobileView state={cfg.state} files={files} />
+        <TweaksPanel open={tweaksOpen} setOpen={setTweaksOpen} cfg={cfg} setCfg={applyCfg} />
+      </>
+    );
+  }
+
+  return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--paper)' }}>
+      <TopBar
+        onSidebar={() => setRailOpen(!railOpen)}
+        railOpen={railOpen}
+        provider="Ollama · llama3.1-70b-q4"
+      />
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }} data-screen-label="01 Main app shell">
+        <LeftRail
+          open={railOpen}
+          mode={railMode}
+          setMode={setRailMode}
+          files={files}
+          state={cfg.state}
+          onStateDemo={(s) => applyCfg({ ...cfg, state: s })}
+        />
+        <main style={{
+          flex: 1, minWidth: 0,
+          display: 'flex', flexDirection: 'column',
+          background: 'var(--paper)',
+        }}>
+          {cfg.state === 'empty' && (
+            <div style={{flex:1, overflow:'auto'}} data-screen-label="02 Empty state">
+              <EmptyState files={files} value={composer} onChange={setComposer} onSend={()=>{}} onAttach={()=>applyCfg({...cfg, state:'selected'})} />
+            </div>
+          )}
+          {(cfg.state === 'selected' || cfg.state === 'processing' || cfg.state === 'ready') && (
+            <div style={{flex:1, overflow:'auto'}} data-screen-label={`02 ${cfg.state}`}>
+              <ProcessingPreamble files={files} state={cfg.state} value={composer} onChange={setComposer} onSend={()=>{}} />
+            </div>
+          )}
+          {cfg.state === 'answered' && (
+            <div style={{flex:1, minHeight:0, display:'flex', flexDirection:'column'}} data-screen-label="02 Answered">
+              <Transcript files={files} value={composer} onChange={setComposer} onSend={()=>{}} />
+            </div>
+          )}
+        </main>
+        <RightPanel
+          open={rightOpen}
+          onClose={(closed) => setRightOpen(!closed)}
+          tab={cfg.rightTab}
+          setTab={(t) => applyCfg({ ...cfg, rightTab: t })}
+          files={files}
+          state={cfg.state}
+        />
+      </div>
+
+      <TweaksPanel open={tweaksOpen} setOpen={setTweaksOpen} cfg={cfg} setCfg={applyCfg} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

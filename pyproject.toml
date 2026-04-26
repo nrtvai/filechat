@@ -1,0 +1,27 @@
+[project]
+name = "filechat"
+version = "0.1.0"
+description = "Local-first document chat workbench with OpenRouter-backed retrieval."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "python-multipart>=0.0.17",
+  "httpx>=0.27.2",
+  "pydantic-settings>=2.6.1",
+  "markitdown[all]>=0.1.5",
+  "markitdown-ocr",
+  "openai>=1.57.0",
+  "keyring>=25.5.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.4",
+  "pytest-asyncio>=0.24.0"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+asyncio_mode = "auto"

@@ -1,0 +1,17 @@
+node_modules/
+.venv/
+.filechat/
+.filechat-e2e/
+.pytest_cache/
+.omx/
+.wrap/
+__pycache__/
+*.py[cod]
+dist/
+.vite/
+test-results/
+playwright-report/
+*.tsbuildinfo
+*.config.js
+*.config.d.ts
+.env
