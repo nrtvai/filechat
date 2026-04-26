@@ -1,0 +1,1092 @@
+import pytest
+import httpx
+from fastapi.testclient import TestClient
+
+from backend.app.config import get_settings
+from backend.app.agent_runtime import review_contract_result
+from backend.app.artifacts import ValidatedArtifact
+from backend.app.database import connect
+from backend.app.main import app
+from backend.app.openrouter import ChatResult, EmbeddingResult, OpenRouterClient, OpenRouterResponseError
+from backend.app.settings_store import get_openrouter_key, set_setting
+from backend.app.usage import UsageInfo
+
+
+def make_client(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "true")
+    get_settings.cache_clear()
+    return TestClient(app)
+
+
+def openrouter_401() -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/embeddings")
+    response = httpx.Response(401, request=request)
+    return httpx.HTTPStatusError(
+        "Client error '401 Unauthorized' for url 'https://openrouter.ai/api/v1/embeddings'",
+        request=request,
+        response=response,
+    )
+
+
+def test_upload_text_file_reaches_ready_and_answers(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Annual report"}).json()
+        upload = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("report.txt", b"North America revenue rose because acquisition revenue expanded.", "text/plain")},
+        )
+        assert upload.status_code == 200
+
+        files = client.get(f"/api/sessions/{session['id']}/files").json()
+        assert files[0]["status"] == "ready"
+        assert files[0]["chunk_count"] >= 1
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "Why did North America revenue rise?"},
+        )
+        assert answer.status_code == 200
+        payload = answer.json()
+        assert payload["role"] == "assistant"
+        assert payload["citations"]
+
+
+def test_generic_summary_question_answers_from_ready_file(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "AI operations memo"}).json()
+        body = (
+            b"AI adoption and groupware operations memo.\n\n"
+            b"This document summarizes the company's plan for AI pilot training, workflow discovery, "
+            b"tool development, and groupware operations after a merger."
+        )
+        upload = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", body, "text/plain")},
+        )
+        assert upload.status_code == 200
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "What is this about?"},
+        )
+
+        assert answer.status_code == 200
+        payload = answer.json()
+        assert payload["role"] == "assistant"
+        assert payload["content"] != "I could not find that answer in the attached sources."
+        assert payload["citations"]
+
+
+def test_unrelated_question_can_return_grounded_refusal_without_citations(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        assert question == "What is the capital of France?"
+        assert sources
+        return ChatResult(answer="I could not find that answer in the attached sources.", cited_source_ids=[])
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Revenue memo"}).json()
+        upload = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("revenue.txt", b"North America revenue rose because acquisition revenue expanded.", "text/plain")},
+        )
+        assert upload.status_code == 200
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "What is the capital of France?"},
+        )
+
+        assert answer.status_code == 200
+        payload = answer.json()
+        assert payload["content"] == "I could not find that answer in the attached sources."
+        assert payload["citations"] == []
+
+
+def test_reupload_same_file_reuses_cached_file(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        first = client.post("/api/sessions", json={"title": "First"}).json()
+        second = client.post("/api/sessions", json={"title": "Second"}).json()
+        body = b"Reusable file content about revenue and margin."
+
+        one = client.post(
+            f"/api/sessions/{first['id']}/files",
+            files={"uploads": ("reuse.txt", body, "text/plain")},
+        ).json()[0]
+        two = client.post(
+            f"/api/sessions/{second['id']}/files",
+            files={"uploads": ("reuse.txt", body, "text/plain")},
+        ).json()[0]
+
+        assert one["id"] == two["id"]
+        assert two["status"] == "ready"
+
+
+def test_missing_session_resource_paths_return_404(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        assert client.delete("/api/sessions/ses_missing").status_code == 404
+        assert client.get("/api/sessions/ses_missing/messages").status_code == 404
+        assert client.get("/api/sessions/ses_missing/files").status_code == 404
+        assert client.delete("/api/sessions/ses_missing/files/fil_missing").status_code == 404
+
+
+def test_detach_missing_file_attachment_returns_404(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Detach"}).json()
+
+        missing = client.delete(f"/api/sessions/{session['id']}/files/fil_missing")
+
+        assert missing.status_code == 404
+
+
+def test_retry_failed_file_requeues_and_reprocesses(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Retry"}).json()
+        uploaded = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("retry.txt", b"Retryable source text about revenue.", "text/plain")},
+        ).json()[0]
+
+        with connect() as conn:
+            conn.execute(
+                "UPDATE files SET status = ?, progress = ?, error = ? WHERE id = ?",
+                ("failed", 1.0, "OpenRouter authentication failed.", uploaded["id"]),
+            )
+
+        retry = client.post(f"/api/sessions/{session['id']}/files/{uploaded['id']}/retry")
+
+        assert retry.status_code == 200
+        assert retry.json()["status"] == "queued"
+        files = client.get(f"/api/sessions/{session['id']}/files").json()
+        assert files[0]["status"] == "ready"
+        assert files[0]["error"] is None
+
+
+def test_env_openrouter_key_overrides_stale_local_key(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+        monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+        get_settings.cache_clear()
+        set_setting("openrouter_api_key", "local-key")
+
+        key, source = get_openrouter_key()
+
+        assert key == "env-key"
+        assert source == "env"
+
+
+def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        session = client.post("/api/sessions", json={"title": "No provider"}).json()
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Summarize"})
+
+        assert started.status_code == 200
+        payload = started.json()
+        assert payload["status"] == "needs_setup"
+        assert "OpenRouter" in payload["error"]
+
+
+def test_openrouter_verify_endpoint_marks_provider_verified(monkeypatch, tmp_path):
+    async def fake_verify_provider(self, *, chat_model, embedding_model):
+        return {"status": "verified", "message": "OpenRouter key verified.", "models_checked": [chat_model, embedding_model]}
+
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr(OpenRouterClient, "verify_provider", fake_verify_provider)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        verified = client.post("/api/settings/openrouter/verify")
+
+        assert verified.status_code == 200
+        assert verified.json()["openrouter_provider_status"] == "verified"
+        assert verified.json()["openrouter_key_source"] == "env"
+
+
+def test_context_profile_defaults_and_patch(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        profile = client.get("/api/context/profile")
+        assert profile.status_code == 200
+        assert profile.json()["artifact_policy"] == "chart+draft"
+        assert profile.json()["citation_display"] == "minimized"
+
+        updated = client.patch("/api/context/profile", json={"citation_display": "full"})
+
+        assert updated.status_code == 200
+        assert updated.json()["citation_display"] == "full"
+
+
+def test_models_endpoint_normalizes_openrouter_models(monkeypatch, tmp_path):
+    async def fake_models(self, kind):
+        assert kind == "chat"
+        return [
+            {
+                "id": "openai/gpt-test",
+                "name": "GPT Test",
+                "context_length": 128000,
+                "pricing": {"prompt": 0.0000001, "completion": 0.0000002, "request": 0.0, "image": 0.0},
+                "created": 123,
+                "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+                "supported_parameters": ["response_format"],
+            }
+        ]
+
+    monkeypatch.setattr("backend.app.main.OpenRouterClient.models", fake_models)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        payload = client.get("/api/models?kind=chat").json()
+
+        assert payload[0]["id"] == "openai/gpt-test"
+        assert payload[0]["pricing"]["prompt"] == 0.0000001
+        assert payload[0]["supported_parameters"] == ["response_format"]
+
+
+def test_chat_usage_is_stored_on_user_and_assistant_messages(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="Revenue rose because acquisition revenue expanded.",
+            cited_source_ids=[1],
+            model=model,
+            usage=UsageInfo(
+                prompt_tokens=100,
+                completion_tokens=25,
+                total_tokens=125,
+                prompt_cost=0.001,
+                completion_cost=0.002,
+                total_cost=0.003,
+            ),
+        )
+
+    async def fake_embedding_result(self, inputs, model):
+        return EmbeddingResult(
+            vectors=[[1.0, 0.0] for _ in inputs],
+            model=model,
+            usage=UsageInfo(prompt_tokens=7, total_tokens=7, prompt_cost=0.0001, total_cost=0.0001),
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.embedding_result", fake_embedding_result)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Usage"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("usage.txt", b"North America revenue rose because acquisition revenue expanded.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Why did revenue rise?"})
+
+        assert answer.status_code == 200
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        user = messages[0]
+        assistant = messages[1]
+        assert user["prompt_tokens"] == 107
+        assert user["total_cost"] == 0.0011
+        assert assistant["completion_tokens"] == 25
+        assert assistant["total_cost"] == 0.002
+
+        summary = client.get(f"/api/sessions/{session['id']}/usage").json()
+        assert summary["chat_prompt_cost"] == 0.001
+        assert summary["chat_completion_cost"] == 0.002
+        assert summary["embedding_cost"] >= 0.0001
+        assert summary["total_cost"] >= 0.0031
+
+
+def test_follow_up_flowchart_request_uses_history_and_persists_mermaid_artifact(monkeypatch, tmp_path):
+    embedding_inputs = []
+
+    async def fake_embedding_result(self, inputs, model):
+        embedding_inputs.extend(inputs)
+        return EmbeddingResult(vectors=[[1.0, 0.0] for _ in inputs], model=model, usage=UsageInfo())
+
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        if question == "요약해 주세요":
+            return ChatResult(
+                answer="전자결재는 하이웍스 활용이 기본이며, 원하시면 흐름도로 정리할 수 있습니다.",
+                cited_source_ids=[1],
+                model=model,
+            )
+        assert question == "해보세요"
+        assert history
+        assert any("흐름도" in item["content"] for item in history)
+        return ChatResult(
+            answer="요청하신 내용을 흐름도로 정리했습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "mermaid",
+                    "title": "AI 도입 흐름",
+                    "caption": "파일럿 중심 도입 절차",
+                    "source_ids": [1],
+                    "diagram": "flowchart TD\n  A[파일럿 검토] --> B[교육]\n  B --> C[확대 판단]",
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.embedding_result", fake_embedding_result)
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+    monkeypatch.setattr("backend.app.ingest.OpenRouterClient.embedding_result", fake_embedding_result)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "AI plan"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("ai-plan.txt", "AI 도입은 파일럿 검토, 교육, 확대 판단 순서로 진행한다.".encode("utf-8"), "text/plain")},
+        )
+
+        first = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "요약해 주세요"})
+        second = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "해보세요"})
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        payload = second.json()
+        assert payload["artifacts"][0]["kind"] == "mermaid"
+        assert payload["artifacts"][0]["spec"]["diagram"].startswith("flowchart TD")
+        assert payload["artifacts"][0]["source_chunk_ids"]
+        assert any("흐름도" in text and "해보세요" in text for text in embedding_inputs)
+
+
+def test_json_render_artifact_is_validated_and_returned(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="표로 정리했습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "table",
+                    "title": "도입 항목",
+                    "caption": "문서 근거 기반 표",
+                    "source_ids": [1],
+                    "jsonRenderSpec": {
+                        "root": "card",
+                        "elements": {
+                            "card": {"type": "ArtifactCard", "props": {"title": "도입 항목"}, "children": ["table"]},
+                            "table": {
+                                "type": "DataTable",
+                                "props": {"columns": ["항목", "내용"], "rows": [["교육", "파일럿 그룹"]]},
+                                "children": [],
+                            },
+                        },
+                    },
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Artifact"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("artifact.txt", "교육 대상은 파일럿 그룹이다.".encode("utf-8"), "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "표로 정리해 주세요"})
+
+        assert answer.status_code == 200
+        artifact = answer.json()["artifacts"][0]
+        assert artifact["kind"] == "table"
+        assert artifact["spec"]["root"] == "card"
+        assert artifact["spec"]["elements"]["table"]["type"] == "DataTable"
+
+
+def test_nested_json_render_artifact_is_normalized_and_returned(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="인사이트 패널을 만들었습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "summary_panel",
+                    "title": "Survey insights",
+                    "caption": "문서 근거 기반 요약",
+                    "source_ids": [1],
+                    "jsonRenderSpec": {
+                        "root": {
+                            "type": "ArtifactCard",
+                            "props": {"title": "Survey insights"},
+                            "children": [
+                                {"type": "TextBlock", "props": {"text": "반복 업무가 주요 병목입니다."}, "children": []}
+                            ],
+                        }
+                    },
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Nested Artifact"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("artifact.txt", "반복 업무가 병목이다.".encode("utf-8"), "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "show me insights"})
+
+        assert answer.status_code == 200
+        artifact = answer.json()["artifacts"][0]
+        assert artifact["kind"] == "summary_panel"
+        assert artifact["spec"]["root"] == "root"
+        assert artifact["spec"]["elements"]["root"]["type"] == "ArtifactCard"
+
+
+def test_invalid_artifact_specs_are_not_persisted(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="정리했습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "table",
+                    "title": "Broken",
+                    "source_ids": [1],
+                    "jsonRenderSpec": {
+                        "root": "bad",
+                        "elements": {
+                            "bad": {"type": "UnsafeHtml", "props": {"html": "<script />"}, "children": []},
+                        },
+                    },
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Invalid Artifact"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("artifact.txt", b"Grounded source text about workflow.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Make UI"})
+
+        assert answer.status_code == 200
+        assert answer.json()["artifacts"] == []
+
+
+def test_file_indexing_embedding_usage_is_attributed_to_session(monkeypatch, tmp_path):
+    async def fake_embedding_result(self, inputs, model):
+        return EmbeddingResult(
+            vectors=[[1.0, 0.0] for _ in inputs],
+            model=model,
+            usage=UsageInfo(prompt_tokens=11, total_tokens=11, prompt_cost=0.00022, total_cost=0.00022),
+        )
+
+    monkeypatch.setattr("backend.app.ingest.OpenRouterClient.embedding_result", fake_embedding_result)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Index cost"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("index.txt", b"Indexable source text about revenue and margin.", "text/plain")},
+        )
+
+        files = client.get(f"/api/sessions/{session['id']}/files").json()
+        assert files[0]["indexing_prompt_tokens"] == 11
+        assert files[0]["indexing_total_cost"] == 0.00022
+
+        summary = client.get(f"/api/sessions/{session['id']}/usage").json()
+        assert summary["embedding_tokens"] == 11
+        assert summary["embedding_cost"] == 0.00022
+
+
+@pytest.mark.asyncio
+async def test_embedding_response_missing_data_is_actionable(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setattr("backend.app.openrouter.get_openrouter_key", lambda: ("key", "local"))
+    get_settings.cache_clear()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"error": {"message": "provider omitted data"}}
+
+    async def fake_post(self, *args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+
+    with pytest.raises(OpenRouterResponseError, match="Embedding model returned no vectors"):
+        await OpenRouterClient().embedding_result(["survey"], "openai/text-embedding-3-small")
+
+
+@pytest.mark.asyncio
+async def test_chat_response_missing_choices_is_actionable(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setattr("backend.app.openrouter.get_openrouter_key", lambda: ("key", "local"))
+    get_settings.cache_clear()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": []}
+
+    async def fake_post(self, *args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+
+    with pytest.raises(OpenRouterResponseError, match="did not return a completion choice"):
+        await OpenRouterClient().chat(
+            model="openai/gpt-4o-mini",
+            question="Make a chart",
+            sources=[{"source_id": 1, "file_name": "survey.csv", "location": "chunk 1", "content": "Yes,10", "excerpt": "Yes,10"}],
+            unavailable=[],
+        )
+
+
+def test_agent_run_persists_phase_steps(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Run"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("run.txt", b"Survey result\nYes,10\nNo,4", "text/plain")},
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart about the survey result"})
+
+        assert started.status_code == 200
+        runs = client.get(f"/api/sessions/{session['id']}/runs").json()
+        assert runs[0]["status"] == "completed"
+        assert [step["phase"] for step in runs[0]["steps"]] == ["plan", "search", "analysis", "writing", "review", "implement"]
+        assert runs[0]["assistant_message_id"]
+        assert runs[0]["execution_plan"]["requested_outputs"] == ["chart"]
+        assert runs[0]["execution_plan"]["reasoning_required"] is True
+        assert runs[0]["model_assignments"]["analysis"]["reasoning_effort"] == "medium"
+        assert any(call["tool"] == "survey_profiler" for call in runs[0]["tool_calls"])
+
+
+def test_deep_routing_preflight_waits_for_approval(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        set_setting("model_routing_mode", "deep")
+        session = client.post("/api/sessions", json={"title": "Approval"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("run.csv", b"Answer,Count\nYes,10\nNo,4", "text/csv")},
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart about the survey result"})
+
+        assert started.status_code == 200
+        assert started.json()["status"] == "awaiting_approval"
+        approved = client.post(f"/api/sessions/{session['id']}/runs/{started.json()['id']}/approve-plan")
+        assert approved.status_code == 200
+        runs = client.get(f"/api/sessions/{session['id']}/runs").json()
+        assert runs[0]["status"] == "completed"
+
+
+def test_broad_korean_create_request_offers_interview_or_automatic(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Planning question"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
+
+        assert started.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "awaiting_user_input"
+        assert run["current_question"]["kind"] == "choice"
+        assert [option["id"] for option in run["current_question"]["options"]] == ["leadership_report", "team_workshop", "data_review"]
+        current = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/questions/current").json()
+        assert current["id"] == run["current_question"]["id"]
+        events = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/events").json()
+        assert any(event["type"] == "question_created" for event in events)
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        assert any(item["path"] == "/plan/ambiguity.json" for item in workspace)
+        assert any(item["path"] == "/plan/task-contract.json" for item in workspace)
+
+
+def test_broad_korean_create_request_automatic_resume_builds_artifacts(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Automatic planning"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        question_id = run["current_question"]["id"]
+        answered = client.post(
+            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{question_id}/answer",
+            json={"selected_option": "leadership_report"},
+        )
+
+        assert answered.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["prompt_context"]["prompt_pack_version"]
+        assert run["prompt_context"]["user_preferences"]["artifact_policy"] == "chart+draft"
+        assert run["current_question"] is None
+        assert any(call["tool"] == "survey_profiler" for call in run["tool_calls"])
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        artifacts = messages[-1]["artifacts"]
+        assert {artifact["kind"] for artifact in artifacts} >= {"chart", "table", "file_draft"}
+        chart = next(artifact for artifact in artifacts if artifact["kind"] == "chart")
+        table = next(artifact for artifact in artifacts if artifact["kind"] == "table")
+        draft = next(artifact for artifact in artifacts if artifact["kind"] == "file_draft")
+        assert chart["display_mode"] == "primary"
+        assert draft["display_mode"] == "primary"
+        assert table["display_mode"] == "supporting"
+        assert chart["title"] != "Survey themes"
+        assert draft["spec"]["filename"] != "analysis-material.md"
+        assert not draft["spec"]["content"].startswith("# 분석 자료")
+        assert chart["spec"]["values"][0]["label"] == "예"
+        assert chart["spec"]["values"][0]["value"] == 10
+
+
+def test_summary_panel_planner_request_is_reconciled_and_run_completes(monkeypatch, tmp_path):
+    async def fake_plan_task(self, *, model, question, file_manifest, prior_answers=None, prompt_context=None, reasoning_effort="none"):
+        return {
+            "intent": "create",
+            "deliverable": "각 사 워크샵 설계 자료",
+            "language": "ko",
+            "required_outputs": ["summary_panel", "chart", "file_draft"],
+            "analysis_focus": ["themes", "evidence", "workshop design"],
+            "success_criteria": ["grounded materials", "usable result"],
+            "needs_user_question": False,
+            "user_question": "",
+            "question_options": [],
+            "default_option": "",
+        }
+
+    monkeypatch.setattr(OpenRouterClient, "plan_task", fake_plan_task)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Capability reconciliation"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "각 사 워크샵 설계 자료 제작"})
+
+        assert started.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["task_contract"]["planner_contract"]["required_outputs"] == ["summary_panel", "chart", "file_draft"]
+        assert run["task_contract"]["executable_contract"]["primary_outputs"] == ["file_draft", "chart"]
+        assert run["task_contract"]["executable_contract"]["supporting_outputs"] == ["summary_panel"]
+        assert any("summary_panel" in adjustment.lower() for adjustment in run["task_contract"]["contract_adjustments"])
+        assert run["review_scores"]["passed"] is True
+        implement = next(step for step in run["steps"] if step["phase"] == "implement")
+        assert implement["status"] == "completed"
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        summary_panel = next(artifact for artifact in messages[-1]["artifacts"] if artifact["kind"] == "summary_panel")
+        assert summary_panel["display_mode"] == "supporting"
+
+
+def test_explicit_summary_panel_request_is_synthesized_from_evidence(monkeypatch, tmp_path):
+    async def fake_plan_task(self, *, model, question, file_manifest, prior_answers=None, prompt_context=None, reasoning_effort="none"):
+        return {
+            "intent": "create",
+            "deliverable": "insight_report",
+            "language": "ko",
+            "required_outputs": ["summary_panel", "chart", "file_draft"],
+            "analysis_focus": ["themes", "evidence"],
+            "success_criteria": ["grounded materials", "summary ready"],
+            "needs_user_question": False,
+            "user_question": "",
+            "question_options": [],
+            "default_option": "",
+        }
+
+    monkeypatch.setattr(OpenRouterClient, "plan_task", fake_plan_task)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Summary synthesis"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "요약 패널 포함해서 분석 자료 제작"})
+
+        assert started.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        events = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/events").json()
+        assert any(event["type"] == "artifact_synthesized" for event in events)
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        summary_panel = next(artifact for artifact in messages[-1]["artifacts"] if artifact["kind"] == "summary_panel")
+        assert summary_panel["display_mode"] == "supporting"
+        assert summary_panel["spec"]["root"] == "card"
+
+
+def test_review_rejects_generic_repetitive_analysis_draft():
+    review = review_contract_result(
+        task_contract={"required_outputs": ["file_draft"], "deliverable": "insight_report"},
+        answer="Draft created.",
+        artifacts=[
+            ValidatedArtifact(
+                kind="file_draft",
+                title="분석 자료 초안",
+                caption="",
+                source_chunk_ids=["chk_1"],
+                spec={
+                    "filename": "analysis-material.md",
+                    "format": "markdown",
+                    "content": "# 분석 자료\n\n- Column: open_text, non-empty 31, unique 31\n작성 팁: raw prompt",
+                },
+            )
+        ],
+        cited_source_ids=[1],
+    )
+
+    assert review["passed"] is False
+    assert any("generic title" in failure for failure in review["failures"])
+    assert any("raw survey metadata" in failure for failure in review["failures"])
+
+
+def test_review_allows_missing_supporting_artifact_with_warning():
+    review = review_contract_result(
+        task_contract={
+            "required_outputs": ["file_draft", "chart"],
+            "primary_outputs": ["file_draft", "chart"],
+            "supporting_outputs": ["summary_panel"],
+            "deliverable": "insight_report",
+        },
+        answer="분석 자료를 만들었습니다.",
+        artifacts=[
+            ValidatedArtifact(
+                kind="file_draft",
+                title="고통 지수 설문: 분석 초안",
+                caption="",
+                source_chunk_ids=["chk_1"],
+                spec={"filename": "analysis.md", "format": "markdown", "content": "# 고통 지수 설문: 분석 초안\n\n충분한 분석 본문입니다." * 40},
+            ),
+            ValidatedArtifact(
+                kind="chart",
+                title="고통 지수 설문: 응답 주제 분포",
+                caption="",
+                source_chunk_ids=["chk_1"],
+                spec={"chart_type": "bar", "x_label": "주제", "y_label": "응답 수", "values": [{"label": "예", "value": 10}]},
+            ),
+        ],
+        cited_source_ids=[1],
+    )
+
+    assert review["passed"] is True
+    assert review["failures"] == []
+    assert any("supporting artifact" in warning.lower() for warning in review["warnings"])
+
+
+def test_survey_timestamp_column_cannot_be_used_as_chart_measure(monkeypatch, tmp_path):
+    csv_body = (
+        "Timestamp,Email Address,소모적인 작업은 무엇인가요?\n"
+        "3/20/2026 19:10:37,a@example.com,원고 검토와 교정 확인이 오래 걸립니다.\n"
+        "3/20/2026 19:11:09,b@example.com,자료 검색과 레퍼런스 정리가 어렵습니다.\n"
+        "3/20/2026 19:12:27,c@example.com,반복 검수와 피드백 정리가 부담됩니다.\n"
+    ).encode("utf-8")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Timestamp survey"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", csv_body, "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        client.post(
+            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
+            json={"selected_option": "leadership_report"},
+        )
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["review_scores"]["passed"] is True
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        chart = next(artifact for artifact in messages[-1]["artifacts"] if artifact["kind"] == "chart")
+        assert chart["spec"]["y_label"] == "Responses"
+        assert all(value["value"] < 100 for value in chart["spec"]["values"])
+        assert all(len(value["label"]) < 80 for value in chart["spec"]["values"])
+
+
+def test_upload_csv_stays_ready_when_embedding_auth_fails(monkeypatch, tmp_path):
+    async def failed_embedding_result(self, inputs, model):
+        raise openrouter_401()
+
+    monkeypatch.setattr(OpenRouterClient, "embedding_result", failed_embedding_result)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Degraded indexing"}).json()
+        upload = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        assert upload.status_code == 200
+        files = client.get(f"/api/sessions/{session['id']}/files").json()
+        assert files[0]["status"] == "ready"
+        assert files[0]["chunk_count"] >= 1
+        assert "OpenRouter authentication failed" in files[0]["error"]
+
+
+def test_broad_korean_create_request_query_embedding_401_uses_local_artifacts(monkeypatch, tmp_path):
+    embedding_calls = 0
+
+    async def flaky_embedding_result(self, inputs, model):
+        nonlocal embedding_calls
+        embedding_calls += 1
+        if embedding_calls > 1:
+            raise openrouter_401()
+        return EmbeddingResult(vectors=[[1.0, 0.0] for _ in inputs], model=model, usage=UsageInfo())
+
+    monkeypatch.setattr(OpenRouterClient, "embedding_result", flaky_embedding_result)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Query embedding degraded"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        client.post(
+            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
+            json={"selected_option": "leadership_report"},
+        )
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        search = next(step for step in run["steps"] if step["phase"] == "search")
+        assert search["status"] == "completed"
+        assert search["detail"]["vector_search_status"] == "unavailable_auth"
+        events = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/events").json()
+        assert any(event["type"] == "tool_failed" and event["detail"]["tool"] == "embedding_search" for event in events)
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        assert "401 Unauthorized" not in messages[-1]["content"]
+        assert "OpenRouter key needs attention" in messages[-1]["content"]
+        assert {artifact["kind"] for artifact in messages[-1]["artifacts"]} >= {"chart", "table", "file_draft"}
+
+
+def test_broad_korean_create_request_interview_resume_stores_clarification(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Interview planning"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("Form Responses 1.csv", "Answer,Count\n예,10\n아니오,4\n".encode("utf-8"), "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        client.post(
+            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
+            json={"selected_option": "leadership_report", "free_text": "팀장에게 공유할 자료"},
+        )
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        clarification = next(item for item in workspace if item["path"] == "/plan/user-clarification.json")
+        assert "leadership_report" in clarification["content"]["clarification"]
+        assert "팀장" in clarification["content"]["clarification"]
+        assert run["task_contract"]["user_direction"]["selected_option"] == "leadership_report"
+
+
+def test_valid_chart_artifact_is_typed_and_returned(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="차트를 만들었습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "chart",
+                    "title": "Survey result",
+                    "caption": "문서 근거 기반 차트",
+                    "source_ids": [1],
+                    "chart_type": "bar",
+                    "x_label": "Answer",
+                    "y_label": "Count",
+                    "values": [{"label": "Yes", "value": 10, "source_id": 1}, {"label": "No", "value": 4, "source_id": 1}],
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Chart"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,10\nNo,4", "text/csv")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Make a chart"})
+
+        artifact = answer.json()["artifacts"][0]
+        assert artifact["kind"] == "chart"
+        assert artifact["spec"]["values"][0]["label"] == "Yes"
+        assert artifact["spec"]["values"][0]["value"] == 10
+
+
+def test_chart_artifact_accepts_numeric_strings_and_infers_sources(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="차트를 만들었습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "chart",
+                    "title": "Survey result",
+                    "values": [{"category": "Yes", "value": "1,234", "source_id": 1}, {"category": "No", "value": "12%", "source_id": 1}],
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Chart strings"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,1234\nNo,12", "text/csv")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Make a chart"})
+
+        values = answer.json()["artifacts"][0]["spec"]["values"]
+        assert values[0]["value"] == 1234
+        assert values[1]["value"] == 12
+
+
+def test_invalid_chart_artifact_uses_deterministic_fallback(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="차트를 만들었습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "chart",
+                    "title": "Broken chart",
+                    "source_ids": [1],
+                    "values": [{"label": "Yes", "value": "not-a-number", "source_id": 1}],
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Invalid Chart"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,10", "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        review = next(step for step in run["steps"] if step["phase"] == "review")
+
+        assert review["detail"]["warnings"]
+        assert run["repair_attempts"][0]["strategy"] == "deterministic_fallback"
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        assert messages[-1]["artifacts"][0]["kind"] == "chart"
+        assert "could not render" not in messages[-1]["content"]
+
+
+def test_schema_valid_but_semantically_bad_chart_needs_revision(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="차트를 만들었습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "chart",
+                    "title": "Bad timestamp chart",
+                    "source_ids": [1],
+                    "chart_type": "bar",
+                    "x_label": "Response",
+                    "y_label": "Timestamp",
+                    "values": [{"label": "A very long free text answer", "value": 3202026191037, "source_id": 1}],
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Bad semantic chart"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", b"Source text is available but contains no usable table.", "text/plain")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+
+        assert run["status"] == "needs_revision"
+        assert run["revision_required"] is True
+        assert run["review_scores"]["passed"] is False
+        assert "timestamp" in " ".join(run["review_scores"]["failures"]).lower()
+
+
+def test_file_draft_artifact_exports_markdown_and_json(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="초안을 만들었습니다.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "file_draft",
+                    "title": "Memo draft",
+                    "caption": "문서 기반 초안",
+                    "source_ids": [1],
+                    "filename": "memo.md",
+                    "format": "markdown",
+                    "content": "# Memo\n\nGrounded draft.",
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Draft"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", b"Grounded draft source.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Create a new file"})
+        artifact = answer.json()["artifacts"][0]
+
+        md = client.get(f"/api/sessions/{session['id']}/artifacts/{artifact['id']}/export?format=md")
+        js = client.get(f"/api/sessions/{session['id']}/artifacts/{artifact['id']}/export?format=json")
+
+        assert md.status_code == 200
+        assert "# Memo" in md.text
+        assert js.status_code == 200
+        assert js.json()["content"] == "# Memo\n\nGrounded draft."
