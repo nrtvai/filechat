@@ -132,6 +132,85 @@ def test_missing_session_resource_paths_return_404(monkeypatch, tmp_path):
         assert client.delete("/api/sessions/ses_missing/files/fil_missing").status_code == 404
 
 
+def test_community_me_defaults_to_single_user_owner(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        payload = client.get("/api/me").json()
+
+        assert payload["edition"] == "community"
+        assert payload["role"] == "owner"
+        assert payload["enterprise_enabled"] is False
+        assert payload["capabilities"]["manage_provider_keys"] is True
+
+
+def test_enterprise_ignores_auth_headers_until_trusted_adapter_enabled(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "false")
+    monkeypatch.setenv("FILECHAT_TRUSTED_AUTH_HEADERS", "false")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        forged_owner = {
+            "X-FileChat-User-Role": "owner",
+            "X-FileChat-User-Id": "usr_forged_owner",
+            "X-FileChat-Org-Id": "org_forged",
+        }
+
+        me = client.get("/api/me", headers=forged_owner).json()
+        assert me["role"] == "member"
+        assert me["organization_id"] == "org_single"
+        assert me["auth_mode"] == "auth_required"
+        assert me["capabilities"]["manage_provider_keys"] is False
+
+        denied = client.patch("/api/admin/settings", json={"chat_model": "openai/not-allowed"}, headers=forged_owner)
+        assert denied.status_code == 403
+
+
+def test_enterprise_test_mode_gates_settings_and_audit_by_role(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "true")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        member = {"X-FileChat-Test-Role": "member"}
+        admin = {"X-FileChat-Test-Role": "admin"}
+        owner = {"X-FileChat-Test-Role": "owner"}
+
+        me = client.get("/api/me", headers=admin).json()
+        assert me["edition"] == "enterprise"
+        assert me["auth_test_mode"] is True
+        assert me["capabilities"]["use_admin_console"] is True
+
+        denied = client.patch("/api/settings", json={"chat_model": "openai/not-allowed"}, headers=member)
+        assert denied.status_code == 403
+
+        allowed = client.patch("/api/admin/settings", json={"chat_model": "openai/enterprise"}, headers=admin)
+        assert allowed.status_code == 200
+        assert allowed.json()["settings_scope"] == "organization"
+        assert allowed.json()["chat_model"] == "openai/enterprise"
+
+        assert client.get("/api/admin/audit-events", headers=admin).status_code == 403
+        audit = client.get("/api/admin/audit-events", headers=owner)
+        assert audit.status_code == 200
+        events = audit.json()
+        assert events[0]["action"] == "settings.updated"
+        assert events[0]["actor_role"] == "admin"
+        assert events[0]["metadata"]["changed"] == ["chat_model"]
+
+
+def test_enterprise_sessions_are_scoped_to_current_org(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "true")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        headers_one = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_one"}
+        headers_two = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_two"}
+
+        created = client.post("/api/sessions", json={"title": "Org one"}, headers=headers_one)
+        assert created.status_code == 200
+
+        assert len(client.get("/api/sessions", headers=headers_one).json()) == 1
+        assert client.get("/api/sessions", headers=headers_two).json() == []
+        assert client.get(f"/api/sessions/{created.json()['id']}", headers=headers_two).status_code == 404
+
+
 def test_detach_missing_file_attachment_returns_404(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         session = client.post("/api/sessions", json={"title": "Detach"}).json()

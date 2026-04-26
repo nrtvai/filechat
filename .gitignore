@@ -13,5 +13,6 @@ test-results/
 playwright-report/
 *.tsbuildinfo
 *.config.js
+!eslint.config.js
 *.config.d.ts
 .env

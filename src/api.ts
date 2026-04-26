@@ -1,17 +1,33 @@
-import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, ContextProfile, FileRecord, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
+import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
 
 const API = import.meta.env.VITE_API_BASE ?? "/api";
+const TEST_ROLE_KEY = "filechat:test-role";
 export const API_UNAVAILABLE_MESSAGE = "FileChat API is not running. Start `npm run dev:all`.";
+
+function roleOverride(): MembershipRole | null {
+  if (typeof window === "undefined") return null;
+  const storage = window.localStorage;
+  if (!storage || typeof storage.getItem !== "function") return null;
+  const value = storage.getItem(TEST_ROLE_KEY);
+  return value === "owner" || value === "admin" || value === "member" ? value : null;
+}
+
+function requestHeaders(init?: RequestInit) {
+  const headers = init?.body instanceof FormData ? new Headers(init.headers) : new Headers({
+    "Content-Type": "application/json",
+    ...init?.headers
+  });
+  const role = roleOverride();
+  if (role) headers.set("X-FileChat-Test-Role", role);
+  return headers;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API}${path}`, {
       ...init,
-      headers: init?.body instanceof FormData ? init.headers : {
-        "Content-Type": "application/json",
-        ...init?.headers
-      }
+      headers: requestHeaders(init)
     });
   } catch (err) {
     if (err instanceof TypeError) {
@@ -27,13 +43,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  testRole: roleOverride,
+  setTestRole: (role: MembershipRole) => {
+    if (typeof window !== "undefined" && typeof window.localStorage?.setItem === "function") {
+      window.localStorage.setItem(TEST_ROLE_KEY, role);
+    }
+  },
   health: () => request<{ status: string }>("/health"),
+  me: () => request<CurrentUser>("/me"),
   settings: () => request<Settings>("/settings"),
   contextProfile: () => request<ContextProfile>("/context/profile"),
   patchContextProfile: (body: Partial<ContextProfile>) =>
     request<ContextProfile>("/context/profile", { method: "PATCH", body: JSON.stringify(body) }),
   patchSettings: (body: Partial<Settings> & { openrouter_api_key?: string }) =>
     request<Settings>("/settings", { method: "PATCH", body: JSON.stringify(body) }),
+  adminSettings: () => request<Settings>("/admin/settings"),
+  patchAdminSettings: (body: Partial<Settings> & { openrouter_api_key?: string }) =>
+    request<Settings>("/admin/settings", { method: "PATCH", body: JSON.stringify(body) }),
+  auditEvents: () => request<AuditEvent[]>("/admin/audit-events"),
   verifyOpenRouter: () => request<Settings>("/settings/openrouter/verify", { method: "POST" }),
   models: (kind: "chat" | "embedding") => request<ModelInfo[]>(`/models?kind=${kind}`),
   modelRecommendations: (task: string) => request<Record<string, unknown>>(`/models/recommendations?task=${encodeURIComponent(task)}`),

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .config import get_settings
+from .utils import now
 
 
 def db_path() -> Path:
@@ -23,9 +24,45 @@ def init_db() -> None:
     with connect() as conn:
         conn.executescript(
             """
+            CREATE TABLE IF NOT EXISTS organizations (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS users (
+              id TEXT PRIMARY KEY,
+              display_name TEXT NOT NULL,
+              email TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS memberships (
+              organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              role TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (organization_id, user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_identities (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              provider TEXT NOT NULL,
+              provider_subject TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              UNIQUE (provider, provider_subject)
+            );
+
             CREATE TABLE IF NOT EXISTS sessions (
               id TEXT PRIMARY KEY,
               title TEXT NOT NULL,
+              organization_id TEXT NOT NULL DEFAULT 'org_single',
+              created_by TEXT NOT NULL DEFAULT 'usr_single',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -33,6 +70,8 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS files (
               id TEXT PRIMARY KEY,
               hash TEXT NOT NULL UNIQUE,
+              organization_id TEXT NOT NULL DEFAULT 'org_single',
+              created_by TEXT,
               name TEXT NOT NULL,
               type TEXT NOT NULL,
               size INTEGER NOT NULL,
@@ -78,6 +117,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS messages (
               id TEXT PRIMARY KEY,
               session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+              created_by TEXT,
               role TEXT NOT NULL,
               content TEXT NOT NULL,
               unavailable_file_ids TEXT NOT NULL DEFAULT '[]',
@@ -224,6 +264,7 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS usage_events (
               id TEXT PRIMARY KEY,
+              organization_id TEXT NOT NULL DEFAULT 'org_single',
               session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
               message_id TEXT REFERENCES messages(id) ON DELETE CASCADE,
               file_id TEXT REFERENCES files(id) ON DELETE CASCADE,
@@ -238,6 +279,18 @@ def init_db() -> None:
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS audit_events (
+              id TEXT PRIMARY KEY,
+              organization_id TEXT NOT NULL,
+              actor_user_id TEXT NOT NULL,
+              actor_role TEXT NOT NULL,
+              action TEXT NOT NULL,
+              target_type TEXT NOT NULL,
+              target_id TEXT,
+              metadata TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS usage_events_session_idx
               ON usage_events(session_id, created_at);
 
@@ -246,13 +299,40 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS usage_events_file_idx
               ON usage_events(file_id);
+
+            CREATE INDEX IF NOT EXISTS audit_events_org_idx
+              ON audit_events(organization_id, created_at);
             """
         )
         _ensure_columns(
             conn,
             "sessions",
             {
+                "organization_id": "TEXT NOT NULL DEFAULT 'org_single'",
+                "created_by": "TEXT NOT NULL DEFAULT 'usr_single'",
                 "context_json": "TEXT NOT NULL DEFAULT '{}'",
+            },
+        )
+        _ensure_columns(
+            conn,
+            "files",
+            {
+                "organization_id": "TEXT NOT NULL DEFAULT 'org_single'",
+                "created_by": "TEXT",
+            },
+        )
+        _ensure_columns(
+            conn,
+            "messages",
+            {
+                "created_by": "TEXT",
+            },
+        )
+        _ensure_columns(
+            conn,
+            "usage_events",
+            {
+                "organization_id": "TEXT NOT NULL DEFAULT 'org_single'",
             },
         )
         _ensure_columns(
@@ -279,6 +359,28 @@ def init_db() -> None:
                 "repair_attempts_json": "TEXT NOT NULL DEFAULT '[]'",
                 "quality_warnings_json": "TEXT NOT NULL DEFAULT '[]'",
             },
+        )
+        created = now()
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO organizations (id, name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("org_single", "FileChat Local", created, created),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (id, display_name, email, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("usr_single", "Local user", "local@filechat.dev", created, created),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO memberships (organization_id, user_id, role, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            ("org_single", "usr_single", "owner", created, created),
         )
 
 

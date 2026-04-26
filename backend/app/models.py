@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 
 
 FileStatus = Literal["queued", "reading", "indexing", "ready", "failed"]
+MembershipRole = Literal["owner", "admin", "member"]
+Edition = Literal["community", "enterprise"]
 ArtifactKind = Literal["mermaid", "chart", "table", "decision_cards", "comparison", "summary_panel", "file_draft"]
 ArtifactDisplayMode = Literal["primary", "supporting"]
 AgentPhase = Literal["plan", "search", "analysis", "writing", "review", "implement"]
@@ -180,6 +182,8 @@ class AgentRunOut(BaseModel):
 class SettingsOut(BaseModel):
     openrouter_key_configured: bool
     openrouter_key_source: Literal["env", "local", "missing"]
+    edition: Edition = "community"
+    settings_scope: Literal["single_user", "organization"] = "single_user"
     openrouter_provider_status: Literal["missing", "unverified", "verified", "invalid"]
     openrouter_provider_message: str = ""
     openrouter_verified_at: str | None = None
@@ -237,6 +241,31 @@ class CreateSession(BaseModel):
 
 class AskRequest(BaseModel):
     content: str = Field(min_length=1)
+
+
+class CurrentUserOut(BaseModel):
+    id: str
+    display_name: str
+    email: str | None = None
+    role: MembershipRole
+    organization_id: str
+    edition: Edition
+    enterprise_enabled: bool
+    auth_test_mode: bool
+    auth_mode: str
+    capabilities: dict[str, bool] = Field(default_factory=dict)
+
+
+class AuditEventOut(BaseModel):
+    id: str
+    organization_id: str
+    actor_user_id: str
+    actor_role: MembershipRole
+    action: str
+    target_type: str
+    target_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
 
 
 class RetryRunRequest(BaseModel):

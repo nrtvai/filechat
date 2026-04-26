@@ -57,6 +57,40 @@ button { cursor: pointer; }
   font-size: 11px;
   color: var(--ink-3);
 }
+.edition-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.edition-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  padding: 5px 9px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.edition-pill.enterprise { border-color: var(--accent-2); }
+.edition-pill small {
+  color: var(--ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.role-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+}
+.role-switch select {
+  height: 28px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--ink);
+}
 .workspace { flex: 1; min-height: 0; display: flex; }
 .icon-btn {
   height: 30px;
@@ -1181,6 +1215,7 @@ button { cursor: pointer; }
   background: var(--card);
   padding: 10px;
 }
+.settings-status.locked { border-color: var(--accent-2); }
 .settings-status strong, .settings-status small { display: block; }
 .settings-status small { color: var(--ink-4); margin-top: 2px; }
 .settings-panel label {
@@ -1272,7 +1307,7 @@ button { cursor: pointer; }
 @media (max-width: 900px) {
   .rail { display: none; }
   .right-panel { display: none; }
-  .topbar .provider-pill, .topbar .caps { display: none; }
+  .topbar .provider-pill, .topbar .caps, .edition-controls { display: none; }
   .empty-copy h1 { font-size: 34px; }
   .processing-view, .turns, .composer-dock { padding-left: 18px; padding-right: 18px; }
   .agent-setup-preview { grid-template-columns: 1fr; }
