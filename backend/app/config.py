@@ -1,8 +1,12 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+Edition = Literal["community", "enterprise"]
 
 
 class AppSettings(BaseSettings):
@@ -14,6 +18,9 @@ class AppSettings(BaseSettings):
     filechat_embedding_model: str = Field(default="openai/text-embedding-3-small", validation_alias="FILECHAT_EMBEDDING_MODEL")
     filechat_ocr_model: str = Field(default="openai/gpt-4o-mini", validation_alias="FILECHAT_OCR_MODEL")
     filechat_allow_fake_openrouter: bool = Field(default=False, validation_alias="FILECHAT_ALLOW_FAKE_OPENROUTER")
+    filechat_edition: Edition = Field(default="community", validation_alias="FILECHAT_EDITION")
+    filechat_auth_test_mode: bool = Field(default=False, validation_alias="FILECHAT_AUTH_TEST_MODE")
+    filechat_trusted_auth_headers: bool = Field(default=False, validation_alias="FILECHAT_TRUSTED_AUTH_HEADERS")
 
     @property
     def resolved_data_dir(self) -> Path:

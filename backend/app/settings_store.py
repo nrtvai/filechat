@@ -114,6 +114,8 @@ def current_app_settings():
     return {
         "openrouter_key_configured": bool(key) or settings.filechat_allow_fake_openrouter,
         "openrouter_key_source": source if key else "missing",
+        "edition": settings.filechat_edition,
+        "settings_scope": "organization" if settings.filechat_edition == "enterprise" else "single_user",
         "openrouter_provider_status": provider["status"],
         "openrouter_provider_message": provider["message"] or "",
         "openrouter_verified_at": provider["verified_at"],

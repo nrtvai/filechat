@@ -1,4 +1,6 @@
 export type FileStatus = "queued" | "reading" | "indexing" | "ready" | "failed";
+export type Edition = "community" | "enterprise";
+export type MembershipRole = "owner" | "admin" | "member";
 
 export interface Session {
   id: string;
@@ -175,6 +177,8 @@ export interface Message {
 export interface Settings {
   openrouter_key_configured: boolean;
   openrouter_key_source: "env" | "local" | "missing";
+  edition: Edition;
+  settings_scope: "single_user" | "organization";
   openrouter_provider_status: "missing" | "unverified" | "verified" | "invalid";
   openrouter_provider_message: string;
   openrouter_verified_at?: string | null;
@@ -192,6 +196,37 @@ export interface Settings {
   reasoning_effort: ReasoningEffort;
   model_routing_mode: ModelRoutingMode;
   high_cost_confirmation: boolean;
+}
+
+export interface CurrentUser {
+  id: string;
+  display_name: string;
+  email?: string | null;
+  role: MembershipRole;
+  organization_id: string;
+  edition: Edition;
+  enterprise_enabled: boolean;
+  auth_test_mode: boolean;
+  auth_mode: string;
+  capabilities: {
+    use_sessions?: boolean;
+    manage_settings?: boolean;
+    manage_provider_keys?: boolean;
+    export_logs?: boolean;
+    use_admin_console?: boolean;
+  };
+}
+
+export interface AuditEvent {
+  id: string;
+  organization_id: string;
+  actor_user_id: string;
+  actor_role: MembershipRole;
+  action: string;
+  target_type: string;
+  target_id?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface ContextProfile {

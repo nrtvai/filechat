@@ -2,11 +2,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { API_UNAVAILABLE_MESSAGE } from "./api";
-import type { AgentRun, AgentRunQuestion, AgentRunStep, Artifact, Citation, FileRecord, Message, Session, Settings } from "./types";
+import type { AgentRun, AgentRunQuestion, AgentRunStep, Artifact, Citation, CurrentUser, FileRecord, Message, Session, Settings } from "./types";
 
 const settings: Settings = {
   openrouter_key_configured: true,
   openrouter_key_source: "env",
+  edition: "community",
+  settings_scope: "single_user",
   openrouter_provider_status: "verified",
   openrouter_provider_message: "OpenRouter key verified.",
   openrouter_verified_at: "",
@@ -24,6 +26,25 @@ const settings: Settings = {
   reasoning_effort: "medium",
   model_routing_mode: "auto",
   high_cost_confirmation: true
+};
+
+const currentUser: CurrentUser = {
+  id: "usr_single",
+  display_name: "Local user",
+  email: "local@filechat.dev",
+  role: "owner",
+  organization_id: "org_single",
+  edition: "community",
+  enterprise_enabled: false,
+  auth_test_mode: false,
+  auth_mode: "single_user",
+  capabilities: {
+    use_sessions: true,
+    manage_settings: true,
+    manage_provider_keys: true,
+    export_logs: true,
+    use_admin_console: false
+  }
 };
 
 function session(id: string, title = "New reading session", file_count = 0): Session {
@@ -168,6 +189,7 @@ describe("App", () => {
   it("creates a fresh blank session on initial load instead of reopening old sessions", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_old", "Old conversation", 1), session("ses_new")]);
@@ -202,6 +224,7 @@ describe("App", () => {
     const report = file("fil_report", "report.txt");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -228,6 +251,7 @@ describe("App", () => {
     const survey = { ...file("fil_survey", "survey.csv"), type: "CSV" };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -252,6 +276,7 @@ describe("App", () => {
     const askRequest = deferred<Response>();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -282,6 +307,7 @@ describe("App", () => {
     const newMessages = deferred<Response>();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_old", "Old conversation", 1), session("ses_new", "Fresh session", 1)]);
@@ -310,6 +336,7 @@ describe("App", () => {
     const failed = file("fil_failed", "bad-key.pdf", "failed", rawError);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -337,6 +364,7 @@ describe("App", () => {
   it("allows drafting when no files are ready but does not submit", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -359,6 +387,7 @@ describe("App", () => {
   it("submits ready prompts with Cmd+Enter", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -426,6 +455,7 @@ describe("App", () => {
     let sawHealthCheck = false;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/health")) {
         sawHealthCheck = true;
         return Response.json({ status: "ok" });
@@ -465,11 +495,107 @@ describe("App", () => {
     });
   });
 
+  it("hides provider key management from enterprise members", async () => {
+    const enterpriseSettings: Settings = {
+      ...settings,
+      edition: "enterprise",
+      settings_scope: "organization"
+    };
+    const enterpriseMember: CurrentUser = {
+      ...currentUser,
+      role: "member",
+      edition: "enterprise",
+      enterprise_enabled: true,
+      auth_test_mode: true,
+      auth_mode: "test_impersonation",
+      capabilities: {
+        use_sessions: true,
+        manage_settings: false,
+        manage_provider_keys: false,
+        export_logs: false,
+        use_admin_console: false
+      }
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(enterpriseMember);
+      if (url.endsWith("/api/settings")) return Response.json(enterpriseSettings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "settings" }));
+    expect(screen.getByText("Managed by admins")).toBeInTheDocument();
+    expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "admin" })).not.toBeInTheDocument();
+  });
+
+  it("puts enterprise provider key management in the admin console", async () => {
+    const enterpriseSettings: Settings = {
+      ...settings,
+      edition: "enterprise",
+      settings_scope: "organization"
+    };
+    const enterpriseAdmin: CurrentUser = {
+      ...currentUser,
+      role: "admin",
+      edition: "enterprise",
+      enterprise_enabled: true,
+      auth_test_mode: true,
+      auth_mode: "test_impersonation",
+      capabilities: {
+        use_sessions: true,
+        manage_settings: true,
+        manage_provider_keys: true,
+        export_logs: false,
+        use_admin_console: true
+      }
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(enterpriseAdmin);
+      if (url.endsWith("/api/health")) return Response.json({ status: "ok" });
+      if (url.endsWith("/api/settings")) return Response.json(enterpriseSettings);
+      if (url.endsWith("/api/admin/settings") && init?.method === "PATCH") return Response.json(enterpriseSettings);
+      if (url.endsWith("/api/settings/openrouter/verify") && init?.method === "POST") return Response.json(enterpriseSettings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.includes("/api/models?kind=chat")) return Response.json([]);
+      if (url.includes("/api/models?kind=embedding")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "admin" }));
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-or-admin" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save key/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/admin/settings", expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ openrouter_api_key: "sk-or-admin" })
+      }));
+    });
+  });
+
   it("keeps optimistic user messages uniquely keyed across repeated API outages", async () => {
     let messageReads = 0;
     const consoleError = vi.spyOn(globalThis.console, "error").mockImplementation(() => undefined);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -521,6 +647,7 @@ describe("App", () => {
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -560,6 +687,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the table."), citations: [cited], artifacts: [tableArtifact] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -592,6 +720,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the chart."), citations: [cited], artifacts: [chartArtifact] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -628,6 +757,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the chart."), citations: [citation("cit_1")], artifacts: [chartArtifact, tableArtifact] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -651,6 +781,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the chart."), citations: [citation("cit_1")], artifacts: [brokenChart] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -675,6 +806,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "I drafted a file."), citations: [citation("cit_1")], artifacts: [draft] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -696,6 +828,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Answer"), citations: [citation("cit_1")] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -716,6 +849,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Answer"), citations: [citation("cit_1")] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -758,6 +892,7 @@ describe("App", () => {
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -783,6 +918,7 @@ describe("App", () => {
     waitingRun.current_question = planningQuestion(waitingRun.id);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -816,6 +952,7 @@ describe("App", () => {
     failedRun.steps = failedRun.steps.map((item) => item.phase === "writing" ? { ...item, status: "failed", error: "Selected chat model did not return structured output." } : item);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -847,6 +984,7 @@ describe("App", () => {
     } : item);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
@@ -871,6 +1009,7 @@ describe("App", () => {
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the flowchart."), citations: [citation("cit_1")], artifacts: [brokenArtifact] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);

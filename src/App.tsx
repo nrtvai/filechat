@@ -1,11 +1,11 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { FileText, KeyRound, Library, Loader2, MessageSquarePlus, PanelLeft, Paperclip, Search, Send, Settings as SettingsIcon, X } from "lucide-react";
+import { FileText, KeyRound, Library, Loader2, MessageSquarePlus, PanelLeft, Paperclip, Search, Send, Settings as SettingsIcon, ShieldCheck, X } from "lucide-react";
 import { api } from "./api";
 import { ArtifactRenderer } from "./artifacts";
-import type { AgentRun, AgentRunQuestion, AgentRunStep, Artifact, Citation, ContextProfile, FileRecord, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
+import type { AgentRun, AgentRunQuestion, AgentRunStep, Artifact, Citation, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
 
 const acceptedTypes = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif";
-type RightTab = "files" | "citations" | "artifacts" | "runs" | "settings";
+type RightTab = "files" | "citations" | "artifacts" | "runs" | "settings" | "admin";
 const emptyUsageSummary: UsageSummary = {
   chat_prompt_tokens: 0,
   chat_completion_tokens: 0,
@@ -74,6 +74,7 @@ export function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [contextProfile, setContextProfile] = useState<ContextProfile>(defaultContextProfile);
   const [usageSummary, setUsageSummary] = useState<UsageSummary>(emptyUsageSummary);
   const [composer, setComposer] = useState("");
@@ -118,9 +119,10 @@ export function App() {
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([api.settings(), api.contextProfile(), api.createSession()])
-      .then(async ([nextSettings, nextProfile, created]) => {
+    Promise.all([api.me(), api.settings(), api.contextProfile(), api.createSession()])
+      .then(async ([nextUser, nextSettings, nextProfile, created]) => {
         if (!mounted) return;
+        setCurrentUser(nextUser);
         setSettings(nextSettings);
         setContextProfile({ ...defaultContextProfile, ...nextProfile });
         activeSessionIdRef.current = created.id;
@@ -303,7 +305,7 @@ export function App() {
 
   const openSettings = () => {
     setRightOpen(true);
-    setRightTab("settings");
+    setRightTab(currentUser?.capabilities.use_admin_console ? "admin" : "settings");
   };
 
   const onCitationClick = (citation: Citation) => {
@@ -334,6 +336,28 @@ export function App() {
       throw err;
     }
   };
+
+  const updateAdminSettings = async (patch: Record<string, unknown>) => {
+    try {
+      await api.health();
+      const next = await api.patchAdminSettings(patch);
+      setSettings(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Admin settings update failed");
+      throw err;
+    }
+  };
+
+  const setTestRole = async (role: MembershipRole) => {
+    api.setTestRole(role);
+    const [nextUser, nextSettings] = await Promise.all([api.me(), api.settings()]);
+    setCurrentUser(nextUser);
+    setSettings(nextSettings);
+    if (!nextUser.capabilities.use_admin_console && rightTab === "admin") {
+      setRightTab("settings");
+    }
+  };
+
   const updateContextProfile = async (patch: Partial<ContextProfile>) => {
     const next = await api.patchContextProfile(patch);
     setContextProfile(next);
@@ -355,6 +379,7 @@ export function App() {
           <span className="mono subtle">local · v0.1.0</span>
         </div>
         <div className="topbar-spacer" />
+        {currentUser && <EditionControls user={currentUser} setTestRole={setTestRole} />}
         <div className="provider-pill"><span className={settings?.openrouter_key_configured ? "dot ready" : "dot warn"} /> OpenRouter · {settings?.chat_model ?? "loading"}</div>
         <div className="mono caps subtle">grounded · strict</div>
       </header>
@@ -423,14 +448,38 @@ export function App() {
           settings={settings}
           contextProfile={contextProfile}
           updateSettings={updateSettings}
+          updateAdminSettings={updateAdminSettings}
           updateContextProfile={updateContextProfile}
           approveRun={approveRun}
           retryRun={retryRun}
           answerRunQuestion={answerRunQuestion}
           highlightCitationId={highlightCitationId}
           activeSession={activeSession}
+          currentUser={currentUser}
         />
       </div>
+    </div>
+  );
+}
+
+function EditionControls({ user, setTestRole }: { user: CurrentUser; setTestRole: (role: MembershipRole) => Promise<void> }) {
+  return (
+    <div className="edition-controls">
+      <div className={`edition-pill ${user.enterprise_enabled ? "enterprise" : "community"}`}>
+        <ShieldCheck size={13} />
+        <span>{user.enterprise_enabled ? "Enterprise" : "Community"}</span>
+        <small>{user.role}</small>
+      </div>
+      {user.auth_test_mode && (
+        <label className="role-switch">
+          <span className="mono caps">test role</span>
+          <select value={user.role} onChange={(event) => void setTestRole(event.target.value as MembershipRole)}>
+            <option value="owner">Owner</option>
+            <option value="admin">Admin</option>
+            <option value="member">Member</option>
+          </select>
+        </label>
+      )}
     </div>
   );
 }
@@ -918,12 +967,14 @@ function RightPanel(props: {
   settings: Settings | null;
   contextProfile: ContextProfile;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
+  updateAdminSettings: (patch: Record<string, unknown>) => Promise<void>;
   updateContextProfile: (patch: Partial<ContextProfile>) => Promise<void>;
   approveRun: (runId: string) => Promise<void>;
   retryRun: (runId: string, mode?: "repair" | "rerun") => Promise<void>;
   answerRunQuestion: (runId: string, questionId: string, selectedOption: string, freeText?: string) => Promise<void>;
   highlightCitationId: string | null;
   activeSession: Session | null;
+  currentUser: CurrentUser | null;
 }) {
   if (!props.open) {
     return <aside className="right-closed"><button onClick={() => props.setOpen(true)}>Sources</button></aside>;
@@ -934,13 +985,36 @@ function RightPanel(props: {
         {(["files", "citations", "artifacts", "runs", "settings"] as const).map((tab) => (
           <button key={tab} className={props.tab === tab ? "on" : ""} onClick={() => props.setTab(tab)}>{tab}</button>
         ))}
+        {props.currentUser?.capabilities.use_admin_console && (
+          <button className={props.tab === "admin" ? "on" : ""} onClick={() => props.setTab("admin")}>admin</button>
+        )}
         <button className="icon-btn" onClick={() => props.setOpen(false)} aria-label="Close right panel"><X size={13} /></button>
       </div>
       {props.tab === "files" && <FilesTab files={props.files} activeSession={props.activeSession} usageSummary={props.usageSummary} />}
       {props.tab === "citations" && <CitationsTab citations={props.citations} highlightCitationId={props.highlightCitationId} />}
       {props.tab === "artifacts" && <ArtifactsTab artifacts={props.artifacts} selectedArtifactId={props.selectedArtifactId} selectArtifactId={props.selectArtifactId} citations={props.citations} />}
       {props.tab === "runs" && <RunsTab runs={props.runs} approveRun={props.approveRun} retryRun={props.retryRun} answerRunQuestion={props.answerRunQuestion} />}
-      {props.tab === "settings" && <SettingsTab settings={props.settings} contextProfile={props.contextProfile} updateSettings={props.updateSettings} updateContextProfile={props.updateContextProfile} />}
+      {props.tab === "settings" && (
+        <SettingsTab
+          settings={props.settings}
+          contextProfile={props.contextProfile}
+          updateSettings={props.updateSettings}
+          updateContextProfile={props.updateContextProfile}
+          canManageProviderKeys={!props.currentUser?.enterprise_enabled}
+          heading="Settings"
+          lockedReason={props.currentUser?.enterprise_enabled ? "Provider keys and models are managed in the Enterprise admin console." : undefined}
+        />
+      )}
+      {props.tab === "admin" && props.currentUser?.capabilities.use_admin_console && (
+        <SettingsTab
+          settings={props.settings}
+          contextProfile={props.contextProfile}
+          updateSettings={props.updateAdminSettings}
+          updateContextProfile={props.updateContextProfile}
+          canManageProviderKeys={!!props.currentUser.capabilities.manage_provider_keys}
+          heading="Admin console"
+        />
+      )}
     </aside>
   );
 }
@@ -1234,12 +1308,18 @@ function SettingsTab({
   settings,
   contextProfile,
   updateSettings,
-  updateContextProfile
+  updateContextProfile,
+  canManageProviderKeys,
+  heading,
+  lockedReason
 }: {
   settings: Settings | null;
   contextProfile: ContextProfile;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
   updateContextProfile: (patch: Partial<ContextProfile>) => Promise<void>;
+  canManageProviderKeys: boolean;
+  heading: string;
+  lockedReason?: string;
 }) {
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1251,6 +1331,7 @@ function SettingsTab({
   const chooserRef = useRef<HTMLDivElement>(null);
 
   const loadModels = useCallback(async (force = false) => {
+    if (!canManageProviderKeys) return;
     if (!force && !settings?.openrouter_key_configured) return;
     setLoadingModels(true);
     setModelError(null);
@@ -1263,7 +1344,7 @@ function SettingsTab({
     } finally {
       setLoadingModels(false);
     }
-  }, [settings?.openrouter_key_configured]);
+  }, [canManageProviderKeys, settings?.openrouter_key_configured]);
 
   useEffect(() => {
     void loadModels();
@@ -1304,87 +1385,60 @@ function SettingsTab({
   const providerReady = providerStatus === "verified";
   return (
     <div className="panel-body settings-panel">
+      <div className="panel-kicker mono caps">{heading}</div>
       <div className="settings-status">
         <KeyRound size={16} />
         <div>
           <strong>{providerReady ? "OpenRouter verified" : settings?.openrouter_key_configured ? `OpenRouter ${providerStatus}` : "OpenRouter key missing"}</strong>
-          <small>{providerReady ? "Model-backed runs can start." : settings?.openrouter_key_configured ? "Verify the key before running model-backed workflows." : "Add a key before indexing or asking questions."}</small>
+          <small>{lockedReason ?? (providerReady ? "Model-backed runs can start." : settings?.openrouter_key_configured ? "Verify the key before running model-backed workflows." : "Add a key before indexing or asking questions.")}</small>
           <small>Source: {settings?.openrouter_key_source ?? "loading"}</small>
+          <small>Scope: {settings?.settings_scope ?? "single_user"}</small>
           {settings?.openrouter_provider_message && <small>{settings.openrouter_provider_message}</small>}
         </div>
       </div>
-      <label>API key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-or-..." /></label>
-      <button className="primary-action" onClick={saveKey} disabled={saving || !apiKey.trim()}><KeyRound size={15} /> Save key</button>
-      {settings?.openrouter_key_configured && <button className="secondary-action" onClick={verifyKey} disabled={verifying}>{verifying ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />} Verify key</button>}
-      <div ref={chooserRef} className="model-chooser">
-        <div className="settings-status"><SettingsIcon size={16} /><div><strong>OpenRouter models</strong><small>{loadingModels ? "Loading live model metadata..." : "Choose model profiles for orchestration, analysis, writing, repair, and embeddings."}</small>{modelError && <small className="settings-error">{modelError}</small>}</div></div>
-        <label>Routing mode
-          <select value={settings?.model_routing_mode ?? "auto"} onChange={(event) => void updateSettings({ model_routing_mode: event.target.value })}>
-            <option value="auto">Auto</option>
-            <option value="balanced">Balanced</option>
-            <option value="deep">Deep</option>
-            <option value="manual">Manual</option>
-          </select>
-        </label>
-        <label>Reasoning effort
-          <select value={settings?.reasoning_effort ?? "medium"} onChange={(event) => void updateSettings({ reasoning_effort: event.target.value })}>
-            <option value="none">None</option>
-            <option value="minimal">Minimal</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="xhigh">X-high</option>
-          </select>
-        </label>
-        <ModelSelector
-          kind="chat"
-          label="Chat model"
-          value={settings?.chat_model ?? ""}
-          models={chatModels}
-          loading={loadingModels}
-          onSelect={(chat_model) => updateSettings({ chat_model })}
-        />
-        <ModelSelector
-          kind="chat"
-          label="Orchestrator model"
-          value={settings?.orchestrator_model ?? settings?.chat_model ?? ""}
-          models={chatModels}
-          loading={loadingModels}
-          onSelect={(orchestrator_model) => updateSettings({ orchestrator_model })}
-        />
-        <ModelSelector
-          kind="chat"
-          label="Analysis model"
-          value={settings?.analysis_model ?? settings?.chat_model ?? ""}
-          models={chatModels}
-          loading={loadingModels}
-          onSelect={(analysis_model) => updateSettings({ analysis_model })}
-        />
-        <ModelSelector
-          kind="chat"
-          label="Writing model"
-          value={settings?.writing_model ?? settings?.chat_model ?? ""}
-          models={chatModels}
-          loading={loadingModels}
-          onSelect={(writing_model) => updateSettings({ writing_model })}
-        />
-        <ModelSelector
-          kind="chat"
-          label="Repair model"
-          value={settings?.repair_model ?? settings?.chat_model ?? ""}
-          models={chatModels}
-          loading={loadingModels}
-          onSelect={(repair_model) => updateSettings({ repair_model })}
-        />
-        <ModelSelector
-          kind="embedding"
-          label="Embedding model"
-          value={settings?.embedding_model ?? ""}
-          models={embeddingModels}
-          loading={loadingModels}
-          onSelect={(embedding_model) => updateSettings({ embedding_model })}
-        />
-      </div>
+      {canManageProviderKeys ? (
+        <>
+          <label>API key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-or-..." /></label>
+          <button className="primary-action" onClick={saveKey} disabled={saving || !apiKey.trim()}><KeyRound size={15} /> Save key</button>
+          {settings?.openrouter_key_configured && <button className="secondary-action" onClick={verifyKey} disabled={verifying}>{verifying ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />} Verify key</button>}
+          <div ref={chooserRef} className="model-chooser">
+            <div className="settings-status"><SettingsIcon size={16} /><div><strong>OpenRouter models</strong><small>{loadingModels ? "Loading live model metadata..." : "Choose model profiles for orchestration, analysis, writing, repair, and embeddings."}</small>{modelError && <small className="settings-error">{modelError}</small>}</div></div>
+            <label>Routing mode
+              <select value={settings?.model_routing_mode ?? "auto"} onChange={(event) => void updateSettings({ model_routing_mode: event.target.value })}>
+                <option value="auto">Auto</option>
+                <option value="balanced">Balanced</option>
+                <option value="deep">Deep</option>
+                <option value="manual">Manual</option>
+              </select>
+            </label>
+            <label>Reasoning effort
+              <select value={settings?.reasoning_effort ?? "medium"} onChange={(event) => void updateSettings({ reasoning_effort: event.target.value })}>
+                <option value="none">None</option>
+                <option value="minimal">Minimal</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="xhigh">X-high</option>
+              </select>
+            </label>
+            <ModelSelector kind="chat" label="Chat model" value={settings?.chat_model ?? ""} models={chatModels} loading={loadingModels} onSelect={(chat_model) => updateSettings({ chat_model })} />
+            <ModelSelector kind="chat" label="Orchestrator model" value={settings?.orchestrator_model ?? settings?.chat_model ?? ""} models={chatModels} loading={loadingModels} onSelect={(orchestrator_model) => updateSettings({ orchestrator_model })} />
+            <ModelSelector kind="chat" label="Analysis model" value={settings?.analysis_model ?? settings?.chat_model ?? ""} models={chatModels} loading={loadingModels} onSelect={(analysis_model) => updateSettings({ analysis_model })} />
+            <ModelSelector kind="chat" label="Writing model" value={settings?.writing_model ?? settings?.chat_model ?? ""} models={chatModels} loading={loadingModels} onSelect={(writing_model) => updateSettings({ writing_model })} />
+            <ModelSelector kind="chat" label="Repair model" value={settings?.repair_model ?? settings?.chat_model ?? ""} models={chatModels} loading={loadingModels} onSelect={(repair_model) => updateSettings({ repair_model })} />
+            <ModelSelector kind="embedding" label="Embedding model" value={settings?.embedding_model ?? ""} models={embeddingModels} loading={loadingModels} onSelect={(embedding_model) => updateSettings({ embedding_model })} />
+          </div>
+        </>
+      ) : (
+        <div className="settings-status locked">
+          <ShieldCheck size={16} />
+          <div>
+            <strong>Managed by admins</strong>
+            <small>{settings?.chat_model ?? "No chat model selected"}</small>
+            <small>{settings?.embedding_model ?? "No embedding model selected"}</small>
+          </div>
+        </div>
+      )}
       <section className="preferences-panel">
         <div className="settings-status">
           <SettingsIcon size={16} />
@@ -1420,36 +1474,29 @@ function SettingsTab({
           </select>
         </label>
       </section>
-      <label>OCR model<input defaultValue={settings?.ocr_model ?? ""} onBlur={(event) => updateSettings({ ocr_model: event.target.value })} /></label>
-      <label>Retrieval depth<input type="number" min={1} max={24} defaultValue={settings?.retrieval_depth ?? 8} onBlur={(event) => updateSettings({ retrieval_depth: Number(event.target.value) })} /></label>
-      <label className="model-check">
-        <input
-          type="checkbox"
-          checked={Boolean(settings?.high_cost_confirmation)}
-          onChange={(event) => void updateSettings({ high_cost_confirmation: event.target.checked })}
-        />
-        Confirm high-cost or deep runs
-      </label>
-      <label className="model-check">
-        <input
-          type="checkbox"
-          checked={Boolean(settings?.web_search_enabled)}
-          onChange={(event) => void updateSettings({ web_search_enabled: event.target.checked })}
-        />
-        Optional web search phase
-      </label>
-      <label>Search engine
-        <select
-          value={settings?.web_search_engine ?? "auto"}
-          onChange={(event) => void updateSettings({ web_search_engine: event.target.value })}
-        >
-          <option value="auto">Auto</option>
-          <option value="native">Native</option>
-          <option value="exa">Exa</option>
-          <option value="parallel">Parallel</option>
-          <option value="firecrawl">Firecrawl</option>
-        </select>
-      </label>
+      {canManageProviderKeys && (
+        <>
+          <label>OCR model<input defaultValue={settings?.ocr_model ?? ""} onBlur={(event) => updateSettings({ ocr_model: event.target.value })} /></label>
+          <label>Retrieval depth<input type="number" min={1} max={24} defaultValue={settings?.retrieval_depth ?? 8} onBlur={(event) => updateSettings({ retrieval_depth: Number(event.target.value) })} /></label>
+          <label className="model-check">
+            <input type="checkbox" checked={Boolean(settings?.high_cost_confirmation)} onChange={(event) => void updateSettings({ high_cost_confirmation: event.target.checked })} />
+            Confirm high-cost or deep runs
+          </label>
+          <label className="model-check">
+            <input type="checkbox" checked={Boolean(settings?.web_search_enabled)} onChange={(event) => void updateSettings({ web_search_enabled: event.target.checked })} />
+            Optional web search phase
+          </label>
+          <label>Search engine
+            <select value={settings?.web_search_engine ?? "auto"} onChange={(event) => void updateSettings({ web_search_engine: event.target.value })}>
+              <option value="auto">Auto</option>
+              <option value="native">Native</option>
+              <option value="exa">Exa</option>
+              <option value="parallel">Parallel</option>
+              <option value="firecrawl">Firecrawl</option>
+            </select>
+          </label>
+        </>
+      )}
       <div className="settings-status"><SettingsIcon size={16} /><div><strong>Strict grounding</strong><small>Answers refuse when the sources do not support them.</small></div></div>
     </div>
   );

@@ -4,6 +4,8 @@ FileChat is a local-first document workbench for grounded reading, analysis, and
 
 The current product direction is simple: make runs honest. If FileChat can answer, it should answer with citations. If it can create something useful from attached files, it should produce a real artifact. If it cannot finish safely, it should pause with a clear question or setup instruction instead of pretending success.
 
+FileChat is also split at the product boundary: Community edition defaults to a single local owner for the open-source app, while Enterprise edition enables role-gated management surfaces for paid org administration.
+
 ## What It Does
 
 - Upload and index PDFs, Office files, spreadsheets, CSV/TSV, Markdown/text, and common image formats.
@@ -106,9 +108,16 @@ FILECHAT_EMBEDDING_MODEL=openai/text-embedding-3-small
 FILECHAT_OCR_MODEL=openai/gpt-4o-mini
 FILECHAT_DATA_DIR=.filechat
 FILECHAT_ALLOW_FAKE_OPENROUTER=false
+FILECHAT_EDITION=community
+FILECHAT_AUTH_TEST_MODE=false
+FILECHAT_TRUSTED_AUTH_HEADERS=false
 ```
 
 `FILECHAT_ALLOW_FAKE_OPENROUTER=true` is intended only for tests and local smoke checks that should not call the network.
+
+Use `FILECHAT_EDITION=enterprise` with `FILECHAT_AUTH_TEST_MODE=true` to switch between owner, admin, and member roles in the UI without creating real accounts. Production enterprise deployments should keep test mode off and only set `FILECHAT_TRUSTED_AUTH_HEADERS=true` behind a trusted authentication proxy or adapter that strips untrusted inbound role headers.
+
+Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise mode, members can use sessions and files, admins can manage provider/model settings, and only owners can export audit logs. Set `FILECHAT_AUTH_TEST_MODE=true` in local development to impersonate owner, admin, and member roles without creating real accounts.
 
 ## Verification
 
