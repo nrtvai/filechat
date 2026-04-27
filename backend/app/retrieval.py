@@ -245,6 +245,7 @@ def _has_ready_embeddings(session_id: str, model: str) -> bool:
             JOIN embeddings e ON e.chunk_id = c.id
             JOIN files f ON f.id = c.file_id
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ? AND f.status = 'ready' AND e.model = ?
             LIMIT 1
             """,
@@ -260,6 +261,7 @@ def load_ready_sources(session_id: str) -> SourceAcquisitionResult:
             """
             SELECT f.id, f.error FROM files f
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ? AND f.status = 'ready'
             ORDER BY sf.attached_at
             """,
@@ -269,6 +271,7 @@ def load_ready_sources(session_id: str) -> SourceAcquisitionResult:
             """
             SELECT f.id FROM files f
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ? AND f.status != 'ready'
             """,
             (session_id,),
@@ -285,6 +288,7 @@ def load_ready_sources(session_id: str) -> SourceAcquisitionResult:
             FROM chunks c
             JOIN files f ON f.id = c.file_id
             JOIN session_files sf ON sf.file_id = f.id AND sf.session_id = ?
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE c.file_id IN ({placeholders})
             ORDER BY sf.attached_at, f.id, c.ordinal
             LIMIT ?
@@ -313,6 +317,7 @@ async def semantic_retrieve(
             """
             SELECT f.id FROM files f
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ? AND f.status = 'ready'
             """,
             (session_id,),
@@ -321,6 +326,7 @@ async def semantic_retrieve(
             """
             SELECT f.id FROM files f
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ? AND f.status != 'ready'
             """,
             (session_id,),
@@ -337,6 +343,7 @@ async def semantic_retrieve(
                 FROM chunks c
                 JOIN files f ON f.id = c.file_id
                 JOIN session_files sf ON sf.file_id = f.id AND sf.session_id = ?
+                JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
                 WHERE c.file_id IN ({placeholders})
                 ORDER BY sf.attached_at, f.id, c.ordinal
                 LIMIT ?
@@ -364,6 +371,7 @@ async def semantic_retrieve(
                 FROM chunks c
                 JOIN files f ON f.id = c.file_id
                 JOIN session_files sf ON sf.file_id = f.id AND sf.session_id = ?
+                JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
                 WHERE c.file_id IN ({placeholders})
                 ORDER BY sf.attached_at, f.id, c.ordinal
                 LIMIT ?

@@ -46,6 +46,7 @@ def read_extracted_file_texts(session_id: str) -> list[dict[str, Any]]:
             SELECT f.id, f.name, f.type, f.artifact_path, f.status
             FROM files f
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ? AND f.status = 'ready' AND f.artifact_path IS NOT NULL
             ORDER BY sf.attached_at
             """,

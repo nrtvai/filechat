@@ -443,7 +443,10 @@ async def upload_files(
 
         created_file = False
         with connect() as conn:
-            existing = conn.execute("SELECT * FROM files WHERE hash = ?", (digest,)).fetchone()
+            existing = conn.execute(
+                "SELECT * FROM files WHERE hash = ? AND organization_id = ?",
+                (digest, principal.organization_id),
+            ).fetchone()
             if existing:
                 file_id = existing["id"]
             else:
@@ -477,11 +480,17 @@ async def upload_files(
                 """,
                 (session_id, file_id, now()),
             )
-            row = conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM files WHERE id = ? AND organization_id = ?",
+                (file_id, principal.organization_id),
+            ).fetchone()
         if created_file or row["status"] in {"failed", "queued"}:
             with connect() as conn:
                 queue_file_for_processing(conn, file_id)
-                row = conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+                row = conn.execute(
+                    "SELECT * FROM files WHERE id = ? AND organization_id = ?",
+                    (file_id, principal.organization_id),
+                ).fetchone()
             background.add_task(process_file, file_id, session_id)
         out.append(file_out(row, session_id))
     return out
@@ -495,10 +504,10 @@ def list_session_files(session_id: str, principal: Principal = Depends(current_p
             """
             SELECT f.* FROM files f
             JOIN session_files sf ON sf.file_id = f.id
-            WHERE sf.session_id = ?
+            WHERE sf.session_id = ? AND f.organization_id = ?
             ORDER BY sf.attached_at
             """,
-            (session_id,),
+            (session_id, principal.organization_id),
         ).fetchall()
     return [file_out(r, session_id) for r in rows]
 
@@ -526,16 +535,19 @@ def retry_file(
             """
             SELECT f.* FROM files f
             JOIN session_files sf ON sf.file_id = f.id
-            WHERE sf.session_id = ? AND f.id = ?
+            WHERE sf.session_id = ? AND f.id = ? AND f.organization_id = ?
             """,
-            (session_id, file_id),
+            (session_id, file_id, principal.organization_id),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="File attachment not found")
         if row["status"] == "ready":
             return file_out(row, session_id)
         queue_file_for_processing(conn, file_id)
-        row = conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM files WHERE id = ? AND organization_id = ?",
+            (file_id, principal.organization_id),
+        ).fetchone()
     background.add_task(process_file, file_id, session_id)
     return file_out(row, session_id)
 

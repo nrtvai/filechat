@@ -69,7 +69,7 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS files (
               id TEXT PRIMARY KEY,
-              hash TEXT NOT NULL UNIQUE,
+              hash TEXT NOT NULL,
               organization_id TEXT NOT NULL DEFAULT 'org_single',
               created_by TEXT,
               name TEXT NOT NULL,
@@ -321,6 +321,7 @@ def init_db() -> None:
                 "created_by": "TEXT",
             },
         )
+        _ensure_files_hash_scope(conn)
         _ensure_columns(
             conn,
             "messages",
@@ -389,6 +390,74 @@ def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str
     for name, declaration in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+
+
+def _ensure_files_hash_scope(conn: sqlite3.Connection) -> None:
+    if _files_has_global_hash_unique(conn):
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            conn.executescript(
+                """
+                DROP TABLE IF EXISTS files__org_hash_migration;
+
+                CREATE TABLE files__org_hash_migration (
+                  id TEXT PRIMARY KEY,
+                  hash TEXT NOT NULL,
+                  organization_id TEXT NOT NULL DEFAULT 'org_single',
+                  created_by TEXT,
+                  name TEXT NOT NULL,
+                  type TEXT NOT NULL,
+                  size INTEGER NOT NULL,
+                  path TEXT NOT NULL,
+                  artifact_path TEXT,
+                  status TEXT NOT NULL,
+                  progress REAL NOT NULL DEFAULT 0,
+                  page_count INTEGER NOT NULL DEFAULT 0,
+                  chunk_count INTEGER NOT NULL DEFAULT 0,
+                  error TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+
+                INSERT INTO files__org_hash_migration
+                (id, hash, organization_id, created_by, name, type, size, path, artifact_path,
+                 status, progress, page_count, chunk_count, error, created_at, updated_at)
+                SELECT id, hash, organization_id, created_by, name, type, size, path, artifact_path,
+                       status, progress, page_count, chunk_count, error, created_at, updated_at
+                FROM files;
+
+                DROP TABLE files;
+                ALTER TABLE files__org_hash_migration RENAME TO files;
+                """
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS files_organization_hash_idx
+        ON files(organization_id, hash)
+        """
+    )
+
+
+def _files_has_global_hash_unique(conn: sqlite3.Connection) -> bool:
+    for row in conn.execute("PRAGMA index_list(files)").fetchall():
+        if not row["unique"]:
+            continue
+        columns = [
+            info["name"]
+            for info in conn.execute(f"PRAGMA index_info({row['name']})").fetchall()
+            if info["name"] is not None
+        ]
+        if columns == ["hash"]:
+            return True
+    return False
 
 
 def rows(query: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
