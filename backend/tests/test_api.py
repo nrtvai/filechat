@@ -10,6 +10,7 @@ from backend.app.main import app
 from backend.app.openrouter import ChatResult, EmbeddingResult, OpenRouterClient, OpenRouterResponseError
 from backend.app.settings_store import get_openrouter_key, set_setting
 from backend.app.usage import UsageInfo
+from backend.app.utils import now
 
 
 def make_client(monkeypatch, tmp_path):
@@ -209,6 +210,84 @@ def test_enterprise_sessions_are_scoped_to_current_org(monkeypatch, tmp_path):
         assert len(client.get("/api/sessions", headers=headers_one).json()) == 1
         assert client.get("/api/sessions", headers=headers_two).json() == []
         assert client.get(f"/api/sessions/{created.json()['id']}", headers=headers_two).status_code == 404
+
+
+def test_enterprise_file_identity_is_scoped_to_current_org(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "true")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        org_a = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_alpha"}
+        org_b = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_beta"}
+        body = b"Shared bytes about quarterly renewal risk and expansion signals."
+
+        session_a = client.post("/api/sessions", json={"title": "Org alpha"}, headers=org_a).json()
+        session_b = client.post("/api/sessions", json={"title": "Org beta"}, headers=org_b).json()
+
+        file_a = client.post(
+            f"/api/sessions/{session_a['id']}/files",
+            files={"uploads": ("alpha.txt", body, "text/plain")},
+            headers=org_a,
+        ).json()[0]
+        file_b = client.post(
+            f"/api/sessions/{session_b['id']}/files",
+            files={"uploads": ("beta.txt", body, "text/plain")},
+            headers=org_b,
+        ).json()[0]
+
+        assert file_a["hash"] == file_b["hash"]
+        assert file_a["id"] != file_b["id"]
+        assert [item["id"] for item in client.get(f"/api/sessions/{session_a['id']}/files", headers=org_a).json()] == [
+            file_a["id"]
+        ]
+        assert [item["id"] for item in client.get(f"/api/sessions/{session_b['id']}/files", headers=org_b).json()] == [
+            file_b["id"]
+        ]
+
+        assert client.get(f"/api/files/{file_a['id']}/status", headers=org_b).status_code == 404
+        assert client.post(f"/api/sessions/{session_b['id']}/files/{file_a['id']}/retry", headers=org_b).status_code == 404
+
+        answer = client.post(
+            f"/api/sessions/{session_b['id']}/messages",
+            json={"content": "What is this about?"},
+            headers=org_b,
+        )
+
+        assert answer.status_code == 200
+        citation_file_ids = {citation["file_id"] for citation in answer.json()["citations"]}
+        assert citation_file_ids == {file_b["id"]}
+
+
+def test_enterprise_retrieval_ignores_cross_org_attachment_rows(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "true")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        org_a = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_alpha"}
+        org_b = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_beta"}
+        session_a = client.post("/api/sessions", json={"title": "Org alpha"}, headers=org_a).json()
+        session_b = client.post("/api/sessions", json={"title": "Org beta"}, headers=org_b).json()
+
+        file_a = client.post(
+            f"/api/sessions/{session_a['id']}/files",
+            files={"uploads": ("alpha.txt", b"Org alpha confidential renewal plan.", "text/plain")},
+            headers=org_a,
+        ).json()[0]
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO session_files (session_id, file_id, attached_at) VALUES (?, ?, ?)",
+                (session_b["id"], file_a["id"], now()),
+            )
+
+        assert client.get(f"/api/sessions/{session_b['id']}/files", headers=org_b).json() == []
+        answer = client.post(
+            f"/api/sessions/{session_b['id']}/messages",
+            json={"content": "What is this about?"},
+            headers=org_b,
+        )
+
+        assert answer.status_code == 200
+        assert answer.json()["citations"] == []
 
 
 def test_detach_missing_file_attachment_returns_404(monkeypatch, tmp_path):

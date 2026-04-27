@@ -128,6 +128,7 @@ def _ready_files(session_id: str) -> list[dict[str, Any]]:
             SELECT f.id, f.name, f.type, f.status, f.size, f.chunk_count
             FROM files f
             JOIN session_files sf ON sf.file_id = f.id
+            JOIN sessions s ON s.id = sf.session_id AND s.organization_id = f.organization_id
             WHERE sf.session_id = ?
             ORDER BY sf.attached_at
             """,
