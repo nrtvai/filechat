@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, MetaIssue, ModelInfo, Session, Settings, UsageSummary } from "./types";
+import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, MetaIssue, ModelInfo, Session, Settings, UsageSummary, WikiEdge, WikiNode } from "./types";
 
 const API = import.meta.env.VITE_API_BASE ?? "/api";
 const TEST_ROLE_KEY = "filechat:test-role";
@@ -70,6 +70,18 @@ export const api = {
   verifyOpenRouter: () => request<Settings>("/settings/openrouter/verify", { method: "POST" }),
   models: (kind: "chat" | "embedding") => request<ModelInfo[]>(`/models?kind=${kind}`),
   modelRecommendations: (task: string) => request<Record<string, unknown>>(`/models/recommendations?task=${encodeURIComponent(task)}`),
+  wikiNodes: (query = "") => request<WikiNode[]>(`/wiki/nodes${query}`),
+  createWikiNode: (body: Pick<WikiNode, "scope" | "type" | "title"> & { summary?: string; properties?: Record<string, unknown>; source_refs?: Record<string, unknown>[] }) =>
+    request<WikiNode>("/wiki/nodes", { method: "POST", body: JSON.stringify(body) }),
+  updateWikiNode: (nodeId: string, body: Partial<Pick<WikiNode, "type" | "title" | "summary" | "properties" | "source_refs">>) =>
+    request<WikiNode>(`/wiki/nodes/${nodeId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteWikiNode: (nodeId: string) => request<{ ok: boolean }>(`/wiki/nodes/${nodeId}`, { method: "DELETE" }),
+  wikiEdges: () => request<WikiEdge[]>("/wiki/edges"),
+  createWikiEdge: (body: Pick<WikiEdge, "source_node_id" | "target_node_id" | "relation_type"> & { weight?: number; confidence?: number; properties?: Record<string, unknown> }) =>
+    request<WikiEdge>("/wiki/edges", { method: "POST", body: JSON.stringify(body) }),
+  updateWikiEdge: (edgeId: string, body: Partial<Pick<WikiEdge, "relation_type" | "weight" | "confidence" | "properties">>) =>
+    request<WikiEdge>(`/wiki/edges/${edgeId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteWikiEdge: (edgeId: string) => request<{ ok: boolean }>(`/wiki/edges/${edgeId}`, { method: "DELETE" }),
   sessions: () => request<Session[]>("/sessions"),
   createSession: (title?: string) =>
     request<Session>("/sessions", { method: "POST", body: JSON.stringify({ title }) }),

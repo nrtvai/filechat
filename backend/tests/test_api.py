@@ -490,6 +490,82 @@ def test_meta_issue_can_create_github_issue_when_configured(monkeypatch, tmp_pat
         assert created.json()["external_url"] == "https://github.com/nrtvai/filechat/issues/99"
 
 
+def test_wiki_graph_nodes_and_edges_are_org_scoped_and_sanitized(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "true")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        org_a = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_alpha"}
+        org_b = {"X-FileChat-Test-Role": "member", "X-FileChat-Org-Id": "org_beta"}
+
+        source = client.post(
+            "/api/wiki/nodes",
+            headers=org_a,
+            json={
+                "scope": "organization",
+                "type": "topic",
+                "title": "Customer onboarding",
+                "summary": "Sensitive token sk-or-secret should be hidden",
+                "properties": {"api_key": "sk-or-secret", "status": "draft"},
+                "source_refs": [{"path": "/tmp/customer-list.csv", "id": "fil_safe"}],
+            },
+        )
+        target = client.post(
+            "/api/wiki/nodes",
+            headers=org_a,
+            json={"scope": "user", "type": "preference", "title": "My tone", "summary": "Concise"},
+        )
+
+        assert source.status_code == 200
+        assert target.status_code == 200
+        source_node = source.json()
+        target_node = target.json()
+        assert source_node["summary"] == "Sensitive token [redacted] should be hidden"
+        assert source_node["properties"]["api_key"] == "[redacted]"
+        assert source_node["source_refs"][0]["path"] == "[redacted]"
+        assert target_node["scope"] == "user"
+        assert target_node["owner_user_id"] == "usr_test_member"
+
+        edge = client.post(
+            "/api/wiki/edges",
+            headers=org_a,
+            json={
+                "source_node_id": source_node["id"],
+                "target_node_id": target_node["id"],
+                "relation_type": "informs",
+                "weight": 0.8,
+                "confidence": 0.7,
+                "properties": {"note": "manual"},
+            },
+        )
+        assert edge.status_code == 200
+        assert edge.json()["relation_type"] == "informs"
+        assert client.get("/api/wiki/edges", headers=org_a).json()[0]["id"] == edge.json()["id"]
+
+        assert client.get(f"/api/wiki/nodes/{source_node['id']}", headers=org_b).status_code == 404
+        assert client.get("/api/wiki/nodes", headers=org_b).json() == []
+        assert client.post(
+            "/api/wiki/edges",
+            headers=org_b,
+            json={
+                "source_node_id": source_node["id"],
+                "target_node_id": target_node["id"],
+                "relation_type": "blocked",
+            },
+        ).status_code == 404
+
+        patched = client.patch(
+            f"/api/wiki/nodes/{source_node['id']}",
+            headers=org_a,
+            json={"summary": "Updated"},
+        )
+        assert patched.status_code == 200
+        assert patched.json()["summary"] == "Updated"
+
+        assert client.delete(f"/api/wiki/edges/{edge.json()['id']}", headers=org_a).json() == {"ok": True}
+        assert client.delete(f"/api/wiki/nodes/{target_node['id']}", headers=org_a).json() == {"ok": True}
+
+
 def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):
     monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")

@@ -245,6 +245,35 @@ export interface MetaIssue {
   updated_at: string;
 }
 
+export interface WikiNode {
+  id: string;
+  organization_id: string;
+  owner_user_id?: string | null;
+  scope: "organization" | "user";
+  type: string;
+  title: string;
+  summary: string;
+  properties: Record<string, unknown>;
+  source_refs: Record<string, unknown>[];
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WikiEdge {
+  id: string;
+  organization_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  relation_type: string;
+  weight: number;
+  confidence: number;
+  properties: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContextProfile {
   artifact_policy: "chart+draft" | "all" | "ask_each_run";
   citation_display: "minimized" | "full";

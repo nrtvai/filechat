@@ -124,6 +124,8 @@ Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise
 
 Runtime complaints and internal failures can be captured as sanitized meta issues with `POST /api/meta-issues`; admins can review and triage them under `/api/admin/meta-issues`. GitHub issue creation is off by default and only runs when the `FILECHAT_META_ISSUES_GITHUB_*` settings are present.
 
+Org/user LLM wiki groundwork is exposed as API-only graph storage under `/api/wiki/nodes` and `/api/wiki/edges`. Nodes and edges are scoped to the current organization, user-scoped nodes are visible only to their owner, and properties/source references are sanitized before storage.
+
 ## Verification
 
 ```bash
