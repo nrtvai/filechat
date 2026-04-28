@@ -1,3 +1,8 @@
+import hashlib
+import hmac
+import json
+import time
+
 import pytest
 import httpx
 from fastapi.testclient import TestClient
@@ -31,6 +36,13 @@ def openrouter_401() -> httpx.HTTPStatusError:
         request=request,
         response=response,
     )
+
+
+def slack_headers(secret: str, body: bytes) -> dict[str, str]:
+    timestamp = str(int(time.time()))
+    base = b"v0:" + timestamp.encode("utf-8") + b":" + body
+    signature = "v0=" + hmac.new(secret.encode("utf-8"), base, hashlib.sha256).hexdigest()
+    return {"X-Slack-Request-Timestamp": timestamp, "X-Slack-Signature": signature}
 
 
 def answer_current_question(client: TestClient, session_id: str, run: dict, selected_option: str, free_text: str = ""):
@@ -564,6 +576,85 @@ def test_wiki_graph_nodes_and_edges_are_org_scoped_and_sanitized(monkeypatch, tm
 
         assert client.delete(f"/api/wiki/edges/{edge.json()['id']}", headers=org_a).json() == {"ok": True}
         assert client.delete(f"/api/wiki/nodes/{target_node['id']}", headers=org_a).json() == {"ok": True}
+
+
+def test_slack_webhook_verifies_signature_and_queues_inline_attachment(monkeypatch, tmp_path):
+    secret = "slack-signing-secret"
+    monkeypatch.setenv("FILECHAT_SLACK_SIGNING_SECRET", secret)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        payload = {
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "files": [
+                    {
+                        "name": "slack-notes.txt",
+                        "mimetype": "text/plain",
+                        "content": "Slack attachment source text.",
+                    }
+                ],
+            },
+        }
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+        response = client.post("/api/integrations/slack/events", content=body, headers=slack_headers(secret, body))
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["service"] == "slack"
+        assert result["accepted"] == 1
+        assert result["files"][0]["status"] in {"queued", "ready"}
+
+
+def test_slack_webhook_rejects_bad_signature_and_logs_meta_issue(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_SLACK_SIGNING_SECRET", "slack-signing-secret")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        body = b'{"type":"event_callback"}'
+        response = client.post(
+            "/api/integrations/slack/events",
+            content=body,
+            headers={"X-Slack-Request-Timestamp": str(int(time.time())), "X-Slack-Signature": "v0=bad"},
+        )
+
+        assert response.status_code == 401
+        issues = client.get("/api/admin/meta-issues").json()
+        assert issues[0]["source"] == "bot"
+        assert "Slack webhook rejected" == issues[0]["title"]
+
+
+def test_telegram_webhook_verifies_secret_and_queues_inline_attachment(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_TELEGRAM_WEBHOOK_SECRET", "telegram-secret")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        response = client.post(
+            "/api/integrations/telegram/webhook",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "telegram-secret"},
+            json={
+                "message": {
+                    "document": {
+                        "file_name": "telegram-note.txt",
+                        "mime_type": "text/plain",
+                        "content": "Telegram attachment source text.",
+                    }
+                }
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["service"] == "telegram"
+        assert response.json()["accepted"] == 1
+
+
+def test_telegram_webhook_rejects_missing_secret(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_TELEGRAM_WEBHOOK_SECRET", "telegram-secret")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        response = client.post("/api/integrations/telegram/webhook", json={"message": {}})
+
+        assert response.status_code == 401
+        assert client.get("/api/admin/meta-issues").json()[0]["source"] == "bot"
 
 
 def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):

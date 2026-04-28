@@ -24,6 +24,8 @@ class AppSettings(BaseSettings):
     filechat_meta_issues_github_enabled: bool = Field(default=False, validation_alias="FILECHAT_META_ISSUES_GITHUB_ENABLED")
     filechat_meta_issues_github_repo: str | None = Field(default=None, validation_alias="FILECHAT_META_ISSUES_GITHUB_REPO")
     filechat_meta_issues_github_token: str | None = Field(default=None, validation_alias="FILECHAT_META_ISSUES_GITHUB_TOKEN")
+    filechat_slack_signing_secret: str | None = Field(default=None, validation_alias="FILECHAT_SLACK_SIGNING_SECRET")
+    filechat_telegram_webhook_secret: str | None = Field(default=None, validation_alias="FILECHAT_TELEGRAM_WEBHOOK_SECRET")
 
     @property
     def resolved_data_dir(self) -> Path:

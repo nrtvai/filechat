@@ -114,6 +114,8 @@ FILECHAT_TRUSTED_AUTH_HEADERS=false
 FILECHAT_META_ISSUES_GITHUB_ENABLED=false
 FILECHAT_META_ISSUES_GITHUB_REPO=
 FILECHAT_META_ISSUES_GITHUB_TOKEN=
+FILECHAT_SLACK_SIGNING_SECRET=
+FILECHAT_TELEGRAM_WEBHOOK_SECRET=
 ```
 
 `FILECHAT_ALLOW_FAKE_OPENROUTER=true` is intended only for tests and local smoke checks that should not call the network.
@@ -125,6 +127,8 @@ Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise
 Runtime complaints and internal failures can be captured as sanitized meta issues with `POST /api/meta-issues`; admins can review and triage them under `/api/admin/meta-issues`. GitHub issue creation is off by default and only runs when the `FILECHAT_META_ISSUES_GITHUB_*` settings are present.
 
 Org/user LLM wiki groundwork is exposed as API-only graph storage under `/api/wiki/nodes` and `/api/wiki/edges`. Nodes and edges are scoped to the current organization, user-scoped nodes are visible only to their owner, and properties/source references are sanitized before storage.
+
+Slack and Telegram webhook scaffolding is available at `/api/integrations/slack/events` and `/api/integrations/telegram/webhook`. Slack requests must pass signing-secret verification, Telegram requests must include `X-Telegram-Bot-Api-Secret-Token`, and inline file payloads are queued through the same ingestion lifecycle as UI uploads.
 
 ## Verification
 
