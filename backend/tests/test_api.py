@@ -657,6 +657,45 @@ def test_telegram_webhook_rejects_missing_secret(monkeypatch, tmp_path):
         assert client.get("/api/admin/meta-issues").json()[0]["source"] == "bot"
 
 
+def test_enterprise_readiness_surfaces_share_redaction_policy(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_SLACK_SIGNING_SECRET", "slack-signing-secret")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        meta = client.post(
+            "/api/meta-issues",
+            json={
+                "source": "runtime",
+                "severity": "error",
+                "title": "Leaked sk-or-secret",
+                "metadata": {"filename": "private.pdf", "token": "Bearer abc123"},
+            },
+        ).json()
+        node = client.post(
+            "/api/wiki/nodes",
+            json={
+                "scope": "organization",
+                "type": "note",
+                "title": "Secret node",
+                "properties": {"path": "/tmp/private.pdf", "api_key": "sk-or-secret"},
+            },
+        ).json()
+        client.post(
+            "/api/integrations/slack/events",
+            content=b'{"type":"event_callback"}',
+            headers={"X-Slack-Request-Timestamp": str(int(time.time())), "X-Slack-Signature": "v0=bad"},
+        )
+
+        bot_issue = next(issue for issue in client.get("/api/admin/meta-issues").json() if issue["source"] == "bot")
+
+        assert meta["title"] == "Leaked [redacted]"
+        assert meta["metadata"]["filename"] == "[redacted]"
+        assert meta["metadata"]["token"] == "[redacted]"
+        assert node["properties"]["path"] == "[redacted]"
+        assert node["properties"]["api_key"] == "[redacted]"
+        assert bot_issue["source"] == "bot"
+        assert bot_issue["metadata"]["reason"]
+
+
 def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):
     monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
