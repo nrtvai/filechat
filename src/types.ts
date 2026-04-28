@@ -229,6 +229,22 @@ export interface AuditEvent {
   created_at: string;
 }
 
+export interface MetaIssue {
+  id: string;
+  organization_id: string;
+  created_by?: string | null;
+  source: "runtime" | "complaint" | "provider" | "bot" | "api";
+  severity: "info" | "warning" | "error" | "critical";
+  status: "open" | "triaged" | "resolved" | "ignored";
+  title: string;
+  body: string;
+  metadata: Record<string, unknown>;
+  fingerprint: string;
+  external_url?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ContextProfile {
   artifact_policy: "chart+draft" | "all" | "ask_each_run";
   citation_display: "minimized" | "full";

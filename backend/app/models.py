@@ -268,6 +268,34 @@ class AuditEventOut(BaseModel):
     created_at: str
 
 
+class MetaIssueCreate(BaseModel):
+    source: Literal["runtime", "complaint", "provider", "bot", "api"] = "complaint"
+    severity: Literal["info", "warning", "error", "critical"] = "error"
+    title: str = Field(min_length=1)
+    body: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MetaIssueUpdate(BaseModel):
+    status: Literal["open", "triaged", "resolved", "ignored"]
+
+
+class MetaIssueOut(BaseModel):
+    id: str
+    organization_id: str
+    created_by: str | None = None
+    source: str
+    severity: str
+    status: str
+    title: str
+    body: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    fingerprint: str
+    external_url: str | None = None
+    created_at: str
+    updated_at: str
+
+
 class RetryRunRequest(BaseModel):
     mode: Literal["repair", "rerun"] = "rerun"
 
