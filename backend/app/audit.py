@@ -4,6 +4,7 @@ from typing import Any
 
 from .auth import Principal
 from .database import connect
+from .security import sanitize_metadata
 from .utils import json_dumps, new_id, now
 
 
@@ -31,7 +32,7 @@ def record_audit_event(
                 action,
                 target_type,
                 target_id,
-                json_dumps(metadata or {}),
+                json_dumps(sanitize_metadata(metadata or {})),
                 now(),
             ),
         )

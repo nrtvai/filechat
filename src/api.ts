@@ -60,6 +60,7 @@ export const api = {
   adminSettings: () => request<Settings>("/admin/settings"),
   patchAdminSettings: (body: Partial<Settings> & { openrouter_api_key?: string }) =>
     request<Settings>("/admin/settings", { method: "PATCH", body: JSON.stringify(body) }),
+  clearOpenRouterKey: () => request<Settings>("/admin/settings/openrouter-key", { method: "DELETE" }),
   auditEvents: () => request<AuditEvent[]>("/admin/audit-events"),
   verifyOpenRouter: () => request<Settings>("/settings/openrouter/verify", { method: "POST" }),
   models: (kind: "chat" | "embedding") => request<ModelInfo[]>(`/models?kind=${kind}`),

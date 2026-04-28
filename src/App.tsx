@@ -348,6 +348,17 @@ export function App() {
     }
   };
 
+  const clearOpenRouterKey = async () => {
+    try {
+      await api.health();
+      const next = await api.clearOpenRouterKey();
+      setSettings(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not clear OpenRouter key");
+      throw err;
+    }
+  };
+
   const setTestRole = async (role: MembershipRole) => {
     api.setTestRole(role);
     const [nextUser, nextSettings] = await Promise.all([api.me(), api.settings()]);
@@ -450,6 +461,7 @@ export function App() {
           updateSettings={updateSettings}
           updateAdminSettings={updateAdminSettings}
           updateContextProfile={updateContextProfile}
+          clearOpenRouterKey={clearOpenRouterKey}
           approveRun={approveRun}
           retryRun={retryRun}
           answerRunQuestion={answerRunQuestion}
@@ -969,6 +981,7 @@ function RightPanel(props: {
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
   updateAdminSettings: (patch: Record<string, unknown>) => Promise<void>;
   updateContextProfile: (patch: Partial<ContextProfile>) => Promise<void>;
+  clearOpenRouterKey: () => Promise<void>;
   approveRun: (runId: string) => Promise<void>;
   retryRun: (runId: string, mode?: "repair" | "rerun") => Promise<void>;
   answerRunQuestion: (runId: string, questionId: string, selectedOption: string, freeText?: string) => Promise<void>;
@@ -1000,6 +1013,7 @@ function RightPanel(props: {
           contextProfile={props.contextProfile}
           updateSettings={props.updateSettings}
           updateContextProfile={props.updateContextProfile}
+          clearOpenRouterKey={props.clearOpenRouterKey}
           canManageProviderKeys={!props.currentUser?.enterprise_enabled}
           heading="Settings"
           lockedReason={props.currentUser?.enterprise_enabled ? "Provider keys and models are managed in the Enterprise admin console." : undefined}
@@ -1011,6 +1025,7 @@ function RightPanel(props: {
           contextProfile={props.contextProfile}
           updateSettings={props.updateAdminSettings}
           updateContextProfile={props.updateContextProfile}
+          clearOpenRouterKey={props.clearOpenRouterKey}
           canManageProviderKeys={!!props.currentUser.capabilities.manage_provider_keys}
           heading="Admin console"
         />
@@ -1309,6 +1324,7 @@ function SettingsTab({
   contextProfile,
   updateSettings,
   updateContextProfile,
+  clearOpenRouterKey,
   canManageProviderKeys,
   heading,
   lockedReason
@@ -1317,6 +1333,7 @@ function SettingsTab({
   contextProfile: ContextProfile;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
   updateContextProfile: (patch: Partial<ContextProfile>) => Promise<void>;
+  clearOpenRouterKey: () => Promise<void>;
   canManageProviderKeys: boolean;
   heading: string;
   lockedReason?: string;
@@ -1328,6 +1345,7 @@ function SettingsTab({
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [clearingKey, setClearingKey] = useState(false);
   const chooserRef = useRef<HTMLDivElement>(null);
 
   const loadModels = useCallback(async (force = false) => {
@@ -1381,8 +1399,21 @@ function SettingsTab({
       setVerifying(false);
     }
   };
+  const clearKey = async () => {
+    setClearingKey(true);
+    setModelError(null);
+    try {
+      await clearOpenRouterKey();
+      setApiKey("");
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : "Could not clear OpenRouter key");
+    } finally {
+      setClearingKey(false);
+    }
+  };
   const providerStatus = settings?.openrouter_provider_status ?? "missing";
   const providerReady = providerStatus === "verified";
+  const canClearSavedKey = Boolean(settings?.openrouter_key_configured && settings.openrouter_key_source === "local");
   return (
     <div className="panel-body settings-panel">
       <div className="panel-kicker mono caps">{heading}</div>
@@ -1401,6 +1432,8 @@ function SettingsTab({
           <label>API key<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-or-..." /></label>
           <button className="primary-action" onClick={saveKey} disabled={saving || !apiKey.trim()}><KeyRound size={15} /> Save key</button>
           {settings?.openrouter_key_configured && <button className="secondary-action" onClick={verifyKey} disabled={verifying}>{verifying ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />} Verify key</button>}
+          {canClearSavedKey && <button className="secondary-action" onClick={clearKey} disabled={clearingKey}>{clearingKey ? <Loader2 size={15} className="spin" /> : <X size={15} />} Clear saved key</button>}
+          {settings?.openrouter_key_source === "env" && <small>Environment keys are managed outside FileChat.</small>}
           <div ref={chooserRef} className="model-chooser">
             <div className="settings-status"><SettingsIcon size={16} /><div><strong>OpenRouter models</strong><small>{loadingModels ? "Loading live model metadata..." : "Choose model profiles for orchestration, analysis, writing, repair, and embeddings."}</small>{modelError && <small className="settings-error">{modelError}</small>}</div></div>
             <label>Routing mode
