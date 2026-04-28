@@ -48,6 +48,7 @@ from .models import (
 from .openrouter import OpenRouterClient
 from .orchestration import build_preflight, model_recommendations
 from .prompt_context import context_profile, patch_context_profile, refresh_session_context, session_context
+from .providers import provider_registry
 from .retrieval import answer, execute_agent_run
 from .security import sanitize_metadata
 from .settings_store import clear_saved_openrouter_key, current_app_settings, get_openrouter_key, set_openrouter_key, set_setting
@@ -345,7 +346,7 @@ async def list_openrouter_models(
     _: Principal = Depends(settings_admin),
 ):
     try:
-        return await OpenRouterClient().models(kind)
+        return await provider_registry().active().models(kind)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -4,11 +4,11 @@ import asyncio
 from pathlib import Path
 
 import httpx
-from openai import OpenAI
 
 from .config import get_settings
 from .database import connect
-from .openrouter import OPENROUTER_URL, OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
+from .openrouter import OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
+from .providers import provider_registry
 from .settings_store import current_app_settings, get_openrouter_key
 from .usage import record_usage_event
 from .utils import new_id, now, rough_tokens, sha256_text
@@ -36,17 +36,7 @@ def split_chunks(text: str, *, target_tokens: int = 820, overlap_tokens: int = 9
 
 
 def _markitdown_client():
-    key, _ = get_openrouter_key()
-    if not key:
-        return None
-    return OpenAI(
-        api_key=key,
-        base_url=OPENROUTER_URL,
-        default_headers={
-            "HTTP-Referer": "http://127.0.0.1:5173",
-            "X-Title": "FileChat",
-        },
-    )
+    return provider_registry().active().ocr_client()
 
 
 def extract_text(path: Path, ext: str) -> str:
@@ -134,11 +124,11 @@ async def process_file(file_id: str, session_id: str | None = None) -> None:
             chunk_rows = conn.execute("SELECT id, content FROM chunks WHERE file_id = ? ORDER BY ordinal", (file_id,)).fetchall()
         embedding_warning = None
         try:
-            client = OpenRouterClient()
+            provider = provider_registry().active()
             batch_size = 24
             for start in range(0, len(chunk_rows), batch_size):
                 batch = chunk_rows[start : start + batch_size]
-                embedding = await client.embedding_result([r["content"] for r in batch], model)
+                embedding = await provider.embedding_result([r["content"] for r in batch], model)
                 with connect() as conn:
                     for chunk, vector in zip(batch, embedding.vectors):
                         conn.execute(
