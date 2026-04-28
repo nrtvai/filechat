@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from .database import connect
+from .meta_issues import capture_internal_issue
 from .openrouter import OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
 from .providers import provider_registry
 from .settings_store import current_app_settings, set_provider_verification
@@ -235,21 +236,63 @@ async def verify_openrouter_provider() -> dict[str, Any]:
         )
     except OpenRouterMissingKey as exc:
         set_provider_verification("missing", str(exc))
+        capture_internal_issue(
+            organization_id="org_single",
+            created_by=None,
+            source="provider",
+            severity="warning",
+            title="OpenRouter provider missing key",
+            body=str(exc),
+        )
         return {"status": "missing", "message": str(exc)}
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 401:
             message = "OpenRouter rejected the configured API key."
             set_provider_verification("invalid", message)
+            capture_internal_issue(
+                organization_id="org_single",
+                created_by=None,
+                source="provider",
+                severity="error",
+                title=message,
+                body=str(exc),
+                metadata={"status_code": exc.response.status_code},
+            )
             return {"status": "invalid", "message": message, "technical_detail": str(exc)}
         message = f"OpenRouter verification failed with HTTP {exc.response.status_code}."
         set_provider_verification("invalid", message)
+        capture_internal_issue(
+            organization_id="org_single",
+            created_by=None,
+            source="provider",
+            severity="error",
+            title=message,
+            body=str(exc),
+            metadata={"status_code": exc.response.status_code},
+        )
         return {"status": "invalid", "message": message, "technical_detail": str(exc)}
     except OpenRouterResponseError as exc:
         set_provider_verification("invalid", str(exc))
+        capture_internal_issue(
+            organization_id="org_single",
+            created_by=None,
+            source="provider",
+            severity="error",
+            title="OpenRouter response error",
+            body=str(exc),
+        )
         return {"status": "invalid", "message": str(exc)}
     except Exception as exc:
         message = "OpenRouter verification failed."
         set_provider_verification("invalid", message)
+        capture_internal_issue(
+            organization_id="org_single",
+            created_by=None,
+            source="provider",
+            severity="error",
+            title=message,
+            body=str(exc),
+        )
         return {"status": "invalid", "message": message, "technical_detail": str(exc)}
     set_provider_verification("verified", str(result.get("message") or "OpenRouter key verified."))
     return result

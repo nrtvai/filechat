@@ -421,6 +421,75 @@ def test_audit_events_are_redacted_and_immutable(monkeypatch, tmp_path):
                 conn.execute("UPDATE audit_events SET action = ? WHERE id = ?", ("mutated", event_id))
 
 
+def test_meta_issue_create_list_and_status_update_are_sanitized(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        created = client.post(
+            "/api/meta-issues",
+            json={
+                "source": "complaint",
+                "severity": "error",
+                "title": "Runtime failed with sk-or-secret",
+                "body": "User saw Bearer abc123 while opening /tmp/private/report.pdf",
+                "metadata": {"path": "/tmp/private/report.pdf", "safe": "request failed"},
+            },
+        )
+
+        assert created.status_code == 200
+        issue = created.json()
+        assert issue["title"] == "Runtime failed with [redacted]"
+        assert "[redacted]" in issue["body"]
+        assert issue["metadata"]["path"] == "[redacted]"
+        assert issue["metadata"]["safe"] == "request failed"
+        assert issue["status"] == "open"
+
+        listed = client.get("/api/admin/meta-issues")
+        assert listed.status_code == 200
+        assert listed.json()[0]["id"] == issue["id"]
+
+        updated = client.patch(f"/api/admin/meta-issues/{issue['id']}", json={"status": "triaged"})
+        assert updated.status_code == 200
+        assert updated.json()["status"] == "triaged"
+
+
+def test_enterprise_member_cannot_read_meta_issues(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_EDITION", "enterprise")
+    monkeypatch.setenv("FILECHAT_AUTH_TEST_MODE", "true")
+
+    with make_client(monkeypatch, tmp_path) as client:
+        denied = client.get("/api/admin/meta-issues", headers={"X-FileChat-Test-Role": "member"})
+
+        assert denied.status_code == 403
+
+
+def test_meta_issue_can_create_github_issue_when_configured(monkeypatch, tmp_path):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"html_url": "https://github.com/nrtvai/filechat/issues/99"}
+
+    async def fake_post(self, url, headers=None, json=None):
+        assert url == "https://api.github.com/repos/nrtvai/filechat/issues"
+        assert headers["Authorization"] == "Bearer gh-test"
+        assert "sk-or-secret" not in json["title"]
+        return FakeResponse()
+
+    monkeypatch.setenv("FILECHAT_META_ISSUES_GITHUB_ENABLED", "true")
+    monkeypatch.setenv("FILECHAT_META_ISSUES_GITHUB_REPO", "nrtvai/filechat")
+    monkeypatch.setenv("FILECHAT_META_ISSUES_GITHUB_TOKEN", "gh-test")
+    monkeypatch.setattr("httpx.AsyncClient.post", fake_post)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        created = client.post(
+            "/api/meta-issues",
+            json={"source": "runtime", "severity": "error", "title": "Secret sk-or-secret", "body": "failed"},
+        )
+
+        assert created.status_code == 200
+        assert created.json()["external_url"] == "https://github.com/nrtvai/filechat/issues/99"
+
+
 def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):
     monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")

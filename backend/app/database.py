@@ -291,6 +291,22 @@ def init_db() -> None:
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS meta_issues (
+              id TEXT PRIMARY KEY,
+              organization_id TEXT NOT NULL,
+              created_by TEXT,
+              source TEXT NOT NULL,
+              severity TEXT NOT NULL,
+              status TEXT NOT NULL,
+              title TEXT NOT NULL,
+              body TEXT NOT NULL DEFAULT '',
+              metadata TEXT NOT NULL DEFAULT '{}',
+              fingerprint TEXT NOT NULL,
+              external_url TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS usage_events_session_idx
               ON usage_events(session_id, created_at);
 
@@ -302,6 +318,9 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS audit_events_org_idx
               ON audit_events(organization_id, created_at);
+
+            CREATE INDEX IF NOT EXISTS meta_issues_org_idx
+              ON meta_issues(organization_id, status, created_at);
 
             CREATE TRIGGER IF NOT EXISTS audit_events_no_update
             BEFORE UPDATE ON audit_events
