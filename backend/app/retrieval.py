@@ -577,6 +577,13 @@ def _should_offer_interview(run_id: str, question: str, outputs: list[str]) -> b
     return get_current_question(run_id) is None
 
 
+def _planning_question_options(task_contract: dict[str, Any], outputs: list[str]) -> list[dict[str, Any]]:
+    options = task_contract.get("question_options")
+    if isinstance(options, list) and options:
+        return options
+    return _deliverable_options(outputs)
+
+
 def _answer_from_artifacts(task_contract: dict[str, Any], artifacts: list[dict[str, Any]]) -> str:
     language = str(task_contract.get("language") or "")
     deliverable = str(task_contract.get("deliverable") or "")
@@ -756,8 +763,94 @@ async def execute_agent_run(run_id: str) -> str | None:
         if task_contract:
             prompt_context = build_prompt_context(session_id=session_id, question=question, task_contract=task_contract, history=history)
             update_run_prompt_context(run_id, prompt_context)
-        if task_contract.get("needs_user_question") and not answered_question_value(run_id, "choice"):
-            options = task_contract.get("question_options") if isinstance(task_contract.get("question_options"), list) else []
+        contract_outputs = list(task_contract.get("required_outputs") or outputs)
+        interview_answer = answered_question_value(run_id, "interview_offer")
+        interview_mode = _answer_selected_option(interview_answer)
+        if task_contract.get("needs_user_question") and _should_offer_interview(run_id, question, contract_outputs):
+            options = _broad_planning_options()
+            created = create_run_question(
+                run_id,
+                phase="plan",
+                kind="interview_offer",
+                question="Do you want a short interview for a better result, or should FileChat handle it automatically?",
+                options=options,
+                default_option="automatic",
+            )
+            upsert_workspace_item(
+                run_id,
+                path="/plan/ambiguity.json",
+                kind="planning",
+                content={
+                    "ambiguity": "broad_create_request",
+                    "requested_outputs": contract_outputs,
+                    "default_option": "automatic",
+                    "question_id": created.id,
+                },
+            )
+            set_step(
+                run_id,
+                current_phase,
+                "running",
+                summary="Waiting for interview or automatic planning choice",
+                detail={"question_id": created.id, "question_kind": created.kind, "options": [item["id"] for item in options]},
+            )
+            mark_run_awaiting_user_input(run_id)
+            return None
+
+        if interview_mode == "automatic":
+            updates = update_contract_user_direction(
+                task_contract,
+                {"selected_option": "automatic", "free_text": "", "mode": "automatic"},
+            )
+            update_run_contract(run_id, task_contract=updates)
+            task_contract = updates
+            prompt_context = build_prompt_context(session_id=session_id, question=question, task_contract=task_contract, history=history)
+            update_run_prompt_context(run_id, prompt_context)
+            upsert_workspace_item(run_id, path="/plan/task-contract.json", kind="planning", content=task_contract)
+            upsert_workspace_item(
+                run_id,
+                path="/plan/inferred-plan.json",
+                kind="planning",
+                content={
+                    "selected_mode": "automatic",
+                    "output_type": task_contract.get("required_outputs", contract_outputs),
+                    "source_files": file_manifest(session_id),
+                    "tools": run.execution_plan.get("tools", []) if isinstance(run.execution_plan, dict) else [],
+                    "fallback_path": "deterministic survey/table artifacts when source data permits",
+                },
+            )
+        elif interview_mode == "interview" and task_contract.get("needs_user_question") and not answered_question_value(run_id, "clarification"):
+            options = _planning_question_options(task_contract, contract_outputs)
+            created = create_run_question(
+                run_id,
+                phase="plan",
+                kind="clarification",
+                question=str(task_contract.get("user_question") or "What should this deliverable optimize for?"),
+                options=options,
+                default_option=str(task_contract.get("default_option") or (options[0]["id"] if options else "")),
+            )
+            upsert_workspace_item(
+                run_id,
+                path="/plan/ambiguity.json",
+                kind="planning",
+                content={
+                    "ambiguity": "interview_requested_user_direction",
+                    "requested_outputs": contract_outputs,
+                    "default_option": task_contract.get("default_option", ""),
+                    "question_id": created.id,
+                },
+            )
+            set_step(
+                run_id,
+                current_phase,
+                "running",
+                summary="Waiting for your planning clarification",
+                detail={"question_id": created.id, "question_kind": created.kind, "options": [item["id"] for item in options]},
+            )
+            mark_run_awaiting_user_input(run_id)
+            return None
+        elif task_contract.get("needs_user_question") and not is_broad_create_request(question, contract_outputs) and not answered_question_value(run_id, "choice"):
+            options = _planning_question_options(task_contract, contract_outputs)
             created = create_run_question(
                 run_id,
                 phase="plan",
@@ -789,18 +882,24 @@ async def execute_agent_run(run_id: str) -> str | None:
 
         planning_suffix = _planning_answer_suffix(run_id)
         choice_answer = answered_question_value(run_id, "choice")
-        if choice_answer:
-            selected = _answer_selected_option(choice_answer)
-            free_text = _answer_free_text(choice_answer)
+        clarification_answer = answered_question_value(run_id, "clarification")
+        direction_answer = clarification_answer or choice_answer
+        if direction_answer:
+            selected = _answer_selected_option(direction_answer)
+            free_text = _answer_free_text(direction_answer)
+            user_direction = {"selected_option": selected, "free_text": free_text}
+            if clarification_answer:
+                user_direction["mode"] = "interview"
             updates = update_contract_user_direction(
                 task_contract,
-                {"selected_option": selected, "free_text": free_text},
+                user_direction,
             )
             update_run_contract(run_id, task_contract=updates)
             task_contract = updates
             prompt_context = build_prompt_context(session_id=session_id, question=question, task_contract=task_contract, history=history)
             update_run_prompt_context(run_id, prompt_context)
-            planning_suffix += "\n\nPlanning direction: " + "; ".join(part for part in [selected, free_text] if part)
+            if choice_answer:
+                planning_suffix += "\n\nPlanning direction: " + "; ".join(part for part in [selected, free_text] if part)
             upsert_workspace_item(run_id, path="/plan/task-contract.json", kind="planning", content=task_contract)
         outputs = list(task_contract.get("required_outputs") or outputs)
         kind = str(task_contract.get("intent") or kind)
