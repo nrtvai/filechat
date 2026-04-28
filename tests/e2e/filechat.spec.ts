@@ -43,7 +43,7 @@ test("broad Korean analysis request asks a planning question then builds artifac
 
   const transcriptQuestion = page.getByRole("main").getByLabel("Planning question");
   await expect(transcriptQuestion).toBeVisible({ timeout: 15_000 });
-  await transcriptQuestion.getByRole("button", { name: /리더 공유용/ }).click();
+  await transcriptQuestion.getByRole("button", { name: /Handle automatically/ }).click();
 
   await expect(page.locator(".artifact-file_draft").getByRole("heading", { name: /분석 초안/ })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".turn.assistant .artifact-table")).toHaveCount(0);

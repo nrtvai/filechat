@@ -150,18 +150,26 @@ function run(id: string, status: AgentRun["status"], question = "Summarize", ass
   };
 }
 
-function planningQuestion(run_id: string, kind: AgentRunQuestion["kind"] = "choice"): AgentRunQuestion {
+function planningQuestion(run_id: string, kind: AgentRunQuestion["kind"] = "interview_offer"): AgentRunQuestion {
+  const isInterviewOffer = kind === "interview_offer";
   return {
     id: "ques_1",
     run_id,
     phase: "plan",
     kind,
-    question: "어떤 의사결정에 바로 쓸 수 있는 분석 자료가 필요하신가요?",
-    options: [
-      { id: "leadership_report", label: "리더 공유용", description: "핵심 인사이트와 실행 제안을 우선합니다." },
-      { id: "team_workshop", label: "팀 워크숍용", description: "토론 질문과 병목 유형을 우선합니다." }
-    ],
-    default_option: "leadership_report",
+    question: isInterviewOffer
+      ? "Do you want a short interview for a better result, or should FileChat handle it automatically?"
+      : "어떤 의사결정에 바로 쓸 수 있는 분석 자료가 필요하신가요?",
+    options: isInterviewOffer
+      ? [
+          { id: "automatic", label: "Handle automatically", description: "Infer the best grounded deliverable from the attached files." },
+          { id: "interview", label: "Interview me", description: "Ask a few focused questions before producing the result." }
+        ]
+      : [
+          { id: "leadership_report", label: "리더 공유용", description: "핵심 인사이트와 실행 제안을 우선합니다." },
+          { id: "team_workshop", label: "팀 워크숍용", description: "토론 질문과 병목 유형을 우선합니다." }
+        ],
+    default_option: isInterviewOffer ? "automatic" : "leadership_report",
     status: "pending",
     created_at: "",
     updated_at: ""
@@ -936,12 +944,12 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByLabelText("Planning question")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /리더 공유용/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Handle automatically/i }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/sessions/ses_new/runs/run_wait/questions/ques_1/answer",
-        expect.objectContaining({ method: "POST", body: JSON.stringify({ selected_option: "leadership_report", free_text: "" }) })
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ selected_option: "automatic", free_text: "" }) })
       );
     });
   });
