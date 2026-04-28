@@ -21,6 +21,9 @@ class AppSettings(BaseSettings):
     filechat_edition: Edition = Field(default="community", validation_alias="FILECHAT_EDITION")
     filechat_auth_test_mode: bool = Field(default=False, validation_alias="FILECHAT_AUTH_TEST_MODE")
     filechat_trusted_auth_headers: bool = Field(default=False, validation_alias="FILECHAT_TRUSTED_AUTH_HEADERS")
+    filechat_meta_issues_github_enabled: bool = Field(default=False, validation_alias="FILECHAT_META_ISSUES_GITHUB_ENABLED")
+    filechat_meta_issues_github_repo: str | None = Field(default=None, validation_alias="FILECHAT_META_ISSUES_GITHUB_REPO")
+    filechat_meta_issues_github_token: str | None = Field(default=None, validation_alias="FILECHAT_META_ISSUES_GITHUB_TOKEN")
 
     @property
     def resolved_data_dir(self) -> Path:

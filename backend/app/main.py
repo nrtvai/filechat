@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .audit import record_audit_event
@@ -38,6 +39,9 @@ from .models import (
     CreateSession,
     FileRecord,
     MessageOut,
+    MetaIssueCreate,
+    MetaIssueOut,
+    MetaIssueUpdate,
     ModelInfo,
     RetryRunRequest,
     SessionOut,
@@ -49,6 +53,7 @@ from .openrouter import OpenRouterClient
 from .orchestration import build_preflight, model_recommendations
 from .prompt_context import context_profile, patch_context_profile, refresh_session_context, session_context
 from .providers import provider_registry
+from .meta_issues import capture_internal_issue, create_meta_issue, list_meta_issues, update_meta_issue_status
 from .retrieval import answer, execute_agent_run
 from .security import sanitize_metadata
 from .settings_store import clear_saved_openrouter_key, current_app_settings, get_openrouter_key, set_openrouter_key, set_setting
@@ -71,6 +76,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def capture_unhandled_exception(request: Request, exc: Exception):
+    capture_internal_issue(
+        organization_id="org_single",
+        created_by=None,
+        source="runtime",
+        severity="error",
+        title=exc.__class__.__name__,
+        body=str(exc),
+        metadata={"method": request.method, "path": request.url.path},
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 def settings_admin(principal: Principal = Depends(current_principal)) -> Principal:
@@ -322,6 +341,38 @@ def list_audit_events(principal: Principal = Depends(log_exporter)):
         }
         for row in rows
     ]
+
+
+@app.post("/api/meta-issues", response_model=MetaIssueOut)
+async def create_meta_issue_endpoint(payload: MetaIssueCreate, principal: Principal = Depends(current_principal)):
+    return await create_meta_issue(
+        principal,
+        source=payload.source,
+        severity=payload.severity,
+        title=payload.title,
+        body=payload.body,
+        metadata=payload.metadata,
+    )
+
+
+@app.get("/api/admin/meta-issues", response_model=list[MetaIssueOut])
+def list_meta_issue_endpoint(principal: Principal = Depends(settings_admin)):
+    return list_meta_issues(principal.organization_id)
+
+
+@app.patch("/api/admin/meta-issues/{issue_id}", response_model=MetaIssueOut)
+def update_meta_issue_endpoint(issue_id: str, payload: MetaIssueUpdate, principal: Principal = Depends(settings_admin)):
+    issue = update_meta_issue_status(principal.organization_id, issue_id, payload.status)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Meta issue not found")
+    record_audit_event(
+        principal,
+        action="meta_issue.updated",
+        target_type="meta_issue",
+        target_id=issue_id,
+        metadata={"status": payload.status},
+    )
+    return issue
 
 
 @app.post("/api/settings/openrouter/verify", response_model=SettingsOut)

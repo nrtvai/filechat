@@ -111,6 +111,9 @@ FILECHAT_ALLOW_FAKE_OPENROUTER=false
 FILECHAT_EDITION=community
 FILECHAT_AUTH_TEST_MODE=false
 FILECHAT_TRUSTED_AUTH_HEADERS=false
+FILECHAT_META_ISSUES_GITHUB_ENABLED=false
+FILECHAT_META_ISSUES_GITHUB_REPO=
+FILECHAT_META_ISSUES_GITHUB_TOKEN=
 ```
 
 `FILECHAT_ALLOW_FAKE_OPENROUTER=true` is intended only for tests and local smoke checks that should not call the network.
@@ -118,6 +121,8 @@ FILECHAT_TRUSTED_AUTH_HEADERS=false
 Use `FILECHAT_EDITION=enterprise` with `FILECHAT_AUTH_TEST_MODE=true` to switch between owner, admin, and member roles in the UI without creating real accounts. Production enterprise deployments should keep test mode off and only set `FILECHAT_TRUSTED_AUTH_HEADERS=true` behind a trusted authentication proxy or adapter that strips untrusted inbound role headers.
 
 Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise mode, members can use sessions and files, admins can manage provider/model settings, and only owners can export audit logs. Set `FILECHAT_AUTH_TEST_MODE=true` in local development to impersonate owner, admin, and member roles without creating real accounts. Audit metadata is append-only and redacted before storage; file security metadata is limited to non-content identifiers such as IDs, hashes, type, size, and status.
+
+Runtime complaints and internal failures can be captured as sanitized meta issues with `POST /api/meta-issues`; admins can review and triage them under `/api/admin/meta-issues`. GitHub issue creation is off by default and only runs when the `FILECHAT_META_ISSUES_GITHUB_*` settings are present.
 
 ## Verification
 

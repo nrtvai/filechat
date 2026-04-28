@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
+import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, MetaIssue, ModelInfo, Session, Settings, UsageSummary } from "./types";
 
 const API = import.meta.env.VITE_API_BASE ?? "/api";
 const TEST_ROLE_KEY = "filechat:test-role";
@@ -62,6 +62,11 @@ export const api = {
     request<Settings>("/admin/settings", { method: "PATCH", body: JSON.stringify(body) }),
   clearOpenRouterKey: () => request<Settings>("/admin/settings/openrouter-key", { method: "DELETE" }),
   auditEvents: () => request<AuditEvent[]>("/admin/audit-events"),
+  metaIssues: () => request<MetaIssue[]>("/admin/meta-issues"),
+  createMetaIssue: (body: Pick<MetaIssue, "source" | "severity" | "title"> & { body?: string; metadata?: Record<string, unknown> }) =>
+    request<MetaIssue>("/meta-issues", { method: "POST", body: JSON.stringify(body) }),
+  updateMetaIssue: (issueId: string, status: MetaIssue["status"]) =>
+    request<MetaIssue>(`/admin/meta-issues/${issueId}`, { method: "PATCH", body: JSON.stringify({ status }) }),
   verifyOpenRouter: () => request<Settings>("/settings/openrouter/verify", { method: "POST" }),
   models: (kind: "chat" | "embedding") => request<ModelInfo[]>(`/models?kind=${kind}`),
   modelRecommendations: (task: string) => request<Record<string, unknown>>(`/models/recommendations?task=${encodeURIComponent(task)}`),
