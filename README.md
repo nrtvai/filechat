@@ -130,6 +130,8 @@ Org/user LLM wiki groundwork is exposed as API-only graph storage under `/api/wi
 
 Slack and Telegram webhook scaffolding is available at `/api/integrations/slack/events` and `/api/integrations/telegram/webhook`. Slack requests must pass signing-secret verification, Telegram requests must include `X-Telegram-Bot-Api-Secret-Token`, and inline file payloads are queued through the same ingestion lifecycle as UI uploads.
 
+See [`docs/enterprise-readiness.md`](docs/enterprise-readiness.md) for the enterprise security, provider, meta issue, wiki graph, and bot webhook readiness checklist.
+
 ## Verification
 
 ```bash
