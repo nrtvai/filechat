@@ -30,6 +30,13 @@ def openrouter_401() -> httpx.HTTPStatusError:
     )
 
 
+def answer_current_question(client: TestClient, session_id: str, run: dict, selected_option: str, free_text: str = ""):
+    return client.post(
+        f"/api/sessions/{session_id}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
+        json={"selected_option": selected_option, "free_text": free_text},
+    )
+
+
 def test_upload_text_file_reaches_ready_and_answers(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         session = client.post("/api/sessions", json={"title": "Annual report"}).json()
@@ -768,8 +775,8 @@ def test_broad_korean_create_request_offers_interview_or_automatic(monkeypatch, 
         assert started.status_code == 200
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "awaiting_user_input"
-        assert run["current_question"]["kind"] == "choice"
-        assert [option["id"] for option in run["current_question"]["options"]] == ["leadership_report", "team_workshop", "data_review"]
+        assert run["current_question"]["kind"] == "interview_offer"
+        assert [option["id"] for option in run["current_question"]["options"]] == ["automatic", "interview"]
         current = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/questions/current").json()
         assert current["id"] == run["current_question"]["id"]
         events = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/events").json()
@@ -789,11 +796,7 @@ def test_broad_korean_create_request_automatic_resume_builds_artifacts(monkeypat
 
         client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
-        question_id = run["current_question"]["id"]
-        answered = client.post(
-            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{question_id}/answer",
-            json={"selected_option": "leadership_report"},
-        )
+        answered = answer_current_question(client, session["id"], run, "automatic")
 
         assert answered.status_code == 200
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
@@ -816,6 +819,9 @@ def test_broad_korean_create_request_automatic_resume_builds_artifacts(monkeypat
         assert not draft["spec"]["content"].startswith("# 분석 자료")
         assert chart["spec"]["values"][0]["label"] == "예"
         assert chart["spec"]["values"][0]["value"] == 10
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        inferred_plan = next(item for item in workspace if item["path"] == "/plan/inferred-plan.json")
+        assert inferred_plan["content"]["selected_mode"] == "automatic"
 
 
 def test_summary_panel_planner_request_is_reconciled_and_run_completes(monkeypatch, tmp_path):
@@ -971,10 +977,7 @@ def test_survey_timestamp_column_cannot_be_used_as_chart_measure(monkeypatch, tm
 
         client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
-        client.post(
-            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
-            json={"selected_option": "leadership_report"},
-        )
+        answer_current_question(client, session["id"], run, "automatic")
 
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "completed"
@@ -1027,10 +1030,7 @@ def test_broad_korean_create_request_query_embedding_401_uses_local_artifacts(mo
 
         client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
-        client.post(
-            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
-            json={"selected_option": "leadership_report"},
-        )
+        answer_current_question(client, session["id"], run, "automatic")
 
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "completed"
@@ -1055,10 +1055,14 @@ def test_broad_korean_create_request_interview_resume_stores_clarification(monke
 
         client.post(f"/api/sessions/{session['id']}/runs", json={"content": "분석 자료 제작"})
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
-        client.post(
-            f"/api/sessions/{session['id']}/runs/{run['id']}/questions/{run['current_question']['id']}/answer",
-            json={"selected_option": "leadership_report", "free_text": "팀장에게 공유할 자료"},
-        )
+        assert run["current_question"]["kind"] == "interview_offer"
+        answer_current_question(client, session["id"], run, "interview")
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "awaiting_user_input"
+        assert run["current_question"]["kind"] == "clarification"
+        assert [option["id"] for option in run["current_question"]["options"]] == ["leadership_report", "team_workshop", "data_review"]
+        answer_current_question(client, session["id"], run, "leadership_report", "팀장에게 공유할 자료")
 
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "completed"
