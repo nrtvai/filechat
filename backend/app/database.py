@@ -302,6 +302,18 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS audit_events_org_idx
               ON audit_events(organization_id, created_at);
+
+            CREATE TRIGGER IF NOT EXISTS audit_events_no_update
+            BEFORE UPDATE ON audit_events
+            BEGIN
+              SELECT RAISE(ABORT, 'audit_events are immutable');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS audit_events_no_delete
+            BEFORE DELETE ON audit_events
+            BEGIN
+              SELECT RAISE(ABORT, 'audit_events are immutable');
+            END;
             """
         )
         _ensure_columns(
