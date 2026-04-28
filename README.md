@@ -79,7 +79,7 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Set `OPENROUTER_API_KEY` in `.env`, or add it later from the in-app Settings panel. Environment variables take precedence over locally stored keys.
+Set `OPENROUTER_API_KEY` in `.env`, or add it later from the in-app Settings panel. Environment variables take precedence over locally stored keys and cannot be cleared from the app; admins can only clear keys saved by FileChat.
 
 ### Run the app
 
@@ -117,7 +117,7 @@ FILECHAT_TRUSTED_AUTH_HEADERS=false
 
 Use `FILECHAT_EDITION=enterprise` with `FILECHAT_AUTH_TEST_MODE=true` to switch between owner, admin, and member roles in the UI without creating real accounts. Production enterprise deployments should keep test mode off and only set `FILECHAT_TRUSTED_AUTH_HEADERS=true` behind a trusted authentication proxy or adapter that strips untrusted inbound role headers.
 
-Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise mode, members can use sessions and files, admins can manage provider/model settings, and only owners can export audit logs. Set `FILECHAT_AUTH_TEST_MODE=true` in local development to impersonate owner, admin, and member roles without creating real accounts.
+Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise mode, members can use sessions and files, admins can manage provider/model settings, and only owners can export audit logs. Set `FILECHAT_AUTH_TEST_MODE=true` in local development to impersonate owner, admin, and member roles without creating real accounts. Audit metadata is append-only and redacted before storage; file security metadata is limited to non-content identifiers such as IDs, hashes, type, size, and status.
 
 ## Verification
 

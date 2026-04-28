@@ -2,6 +2,8 @@ import pytest
 import httpx
 from fastapi.testclient import TestClient
 
+from backend.app.audit import record_audit_event
+from backend.app.auth import Principal
 from backend.app.config import get_settings
 from backend.app.agent_runtime import review_contract_result
 from backend.app.artifacts import ValidatedArtifact
@@ -340,6 +342,82 @@ def test_env_openrouter_key_overrides_stale_local_key(monkeypatch, tmp_path):
 
         assert key == "env-key"
         assert source == "env"
+
+
+def test_clear_local_openrouter_key_resets_provider_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+    monkeypatch.setattr("backend.app.settings_store._keyring_delete", lambda: True)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        set_setting("openrouter_api_key", "sk-or-local-secret")
+        set_setting("openrouter_provider_status", "verified")
+        set_setting("openrouter_provider_message", "OpenRouter key verified.")
+
+        cleared = client.delete("/api/admin/settings/openrouter-key")
+
+        assert cleared.status_code == 200
+        payload = cleared.json()
+        assert payload["openrouter_key_configured"] is False
+        assert payload["openrouter_key_source"] == "missing"
+        assert payload["openrouter_provider_status"] == "missing"
+        key, source = get_openrouter_key()
+        assert key is None
+        assert source == "missing"
+
+
+def test_clear_openrouter_key_refuses_env_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        cleared = client.delete("/api/admin/settings/openrouter-key")
+
+        assert cleared.status_code == 409
+        assert "Environment" in cleared.json()["detail"]
+
+
+def test_audit_events_are_redacted_and_immutable(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        principal = Principal(
+            user_id="usr_owner",
+            display_name="Owner",
+            email="owner@example.com",
+            role="owner",
+            organization_id="org_single",
+            edition="community",
+            auth_test_mode=False,
+            auth_mode="single_user",
+        )
+        event_id = record_audit_event(
+            principal,
+            action="security.test",
+            target_type="file",
+            target_id="fil_test",
+            metadata={
+                "api_key": "sk-or-secret",
+                "path": "/tmp/private/report.pdf",
+                "nested": {"content": "raw file text", "safe": "Bearer abc123"},
+            },
+        )
+
+        audit = client.get("/api/admin/audit-events")
+
+        assert audit.status_code == 200
+        event = next(item for item in audit.json() if item["id"] == event_id)
+        assert event["metadata"]["api_key"] == "[redacted]"
+        assert event["metadata"]["path"] == "[redacted]"
+        assert event["metadata"]["nested"]["content"] == "[redacted]"
+        assert event["metadata"]["nested"]["safe"] == "[redacted]"
+        with pytest.raises(Exception, match="immutable"):
+            with connect() as conn:
+                conn.execute("UPDATE audit_events SET action = ? WHERE id = ?", ("mutated", event_id))
 
 
 def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):

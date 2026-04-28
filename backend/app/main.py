@@ -49,7 +49,8 @@ from .openrouter import OpenRouterClient
 from .orchestration import build_preflight, model_recommendations
 from .prompt_context import context_profile, patch_context_profile, refresh_session_context, session_context
 from .retrieval import answer, execute_agent_run
-from .settings_store import current_app_settings, set_openrouter_key, set_setting
+from .security import sanitize_metadata
+from .settings_store import clear_saved_openrouter_key, current_app_settings, get_openrouter_key, set_openrouter_key, set_setting
 from .usage import usage_for_file, usage_for_message, usage_summary
 from .utils import extension, json_loads, new_id, now, sha256_bytes
 
@@ -223,6 +224,21 @@ def patch_admin_settings(patch: SettingsPatch, principal: Principal = Depends(se
     return current_app_settings()
 
 
+@app.delete("/api/admin/settings/openrouter-key", response_model=SettingsOut)
+def clear_openrouter_key(principal: Principal = Depends(settings_admin)):
+    _, source = get_openrouter_key()
+    if source == "env":
+        raise HTTPException(status_code=409, detail="Environment OpenRouter keys cannot be cleared in FileChat.")
+    clear_saved_openrouter_key()
+    record_audit_event(
+        principal,
+        action="settings.openrouter_key_cleared",
+        target_type="settings",
+        metadata={"changed": ["openrouter_api_key"]},
+    )
+    return current_app_settings()
+
+
 def apply_settings_patch(patch: SettingsPatch, principal: Principal) -> None:
     changed: list[str] = []
     if patch.openrouter_api_key is not None and patch.openrouter_api_key.strip():
@@ -300,7 +316,7 @@ def list_audit_events(principal: Principal = Depends(log_exporter)):
             "action": row["action"],
             "target_type": row["target_type"],
             "target_id": row["target_id"],
-            "metadata": json_loads(row["metadata"], {}),
+            "metadata": sanitize_metadata(json_loads(row["metadata"], {})),
             "created_at": row["created_at"],
         }
         for row in rows

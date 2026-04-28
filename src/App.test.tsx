@@ -598,6 +598,64 @@ describe("App", () => {
     });
   });
 
+  it("lets enterprise admins clear saved local provider keys", async () => {
+    const localSettings: Settings = {
+      ...settings,
+      edition: "enterprise",
+      settings_scope: "organization",
+      openrouter_key_source: "local"
+    };
+    const clearedSettings: Settings = {
+      ...localSettings,
+      openrouter_key_configured: false,
+      openrouter_key_source: "missing",
+      openrouter_provider_status: "missing",
+      openrouter_provider_message: "OpenRouter API key is missing."
+    };
+    const enterpriseAdmin: CurrentUser = {
+      ...currentUser,
+      role: "admin",
+      edition: "enterprise",
+      enterprise_enabled: true,
+      auth_test_mode: true,
+      auth_mode: "test_impersonation",
+      capabilities: {
+        use_sessions: true,
+        manage_settings: true,
+        manage_provider_keys: true,
+        export_logs: false,
+        use_admin_console: true
+      }
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(enterpriseAdmin);
+      if (url.endsWith("/api/health")) return Response.json({ status: "ok" });
+      if (url.endsWith("/api/admin/settings/openrouter-key") && init?.method === "DELETE") return Response.json(clearedSettings);
+      if (url.endsWith("/api/settings")) return Response.json(localSettings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.includes("/api/models?kind=chat")) return Response.json([]);
+      if (url.includes("/api/models?kind=embedding")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "admin" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Clear saved key/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/admin/settings/openrouter-key", expect.objectContaining({
+        method: "DELETE"
+      }));
+    });
+  });
+
   it("keeps optimistic user messages uniquely keyed across repeated API outages", async () => {
     let messageReads = 0;
     const consoleError = vi.spyOn(globalThis.console, "error").mockImplementation(() => undefined);

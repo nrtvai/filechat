@@ -33,6 +33,16 @@ def _keyring_set(value: str) -> bool:
         return False
 
 
+def _keyring_delete() -> bool:
+    try:
+        import keyring
+
+        keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
+        return True
+    except Exception:
+        return False
+
+
 def get_setting(key: str, default: str | None = None) -> str | None:
     with connect() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -49,6 +59,11 @@ def set_setting(key: str, value: str) -> None:
             """,
             (key, value, now()),
         )
+
+
+def delete_setting(key: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM settings WHERE key = ?", (key,))
 
 
 def get_openrouter_key() -> tuple[str | None, str]:
@@ -68,6 +83,12 @@ def set_openrouter_key(value: str) -> None:
     if not _keyring_set(value):
         set_setting("openrouter_api_key", value)
     set_provider_verification("unverified", "Saved key has not been verified yet.")
+
+
+def clear_saved_openrouter_key() -> None:
+    _keyring_delete()
+    delete_setting("openrouter_api_key")
+    set_provider_verification("missing", "OpenRouter API key is missing.")
 
 
 def _fingerprint(value: str | None) -> str:
