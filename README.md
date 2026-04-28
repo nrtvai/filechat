@@ -59,7 +59,7 @@ That makes behavior easier to inspect and safer to evolve across prompt upgrades
 
 - Frontend: React 19, TypeScript, Vite, Vitest, Playwright
 - Backend: FastAPI, SQLite, `uv`, pytest
-- Model gateway: OpenRouter
+- Model gateway: OpenRouter through the backend provider registry
 - Rendering: custom safe artifact renderer plus constrained JSON render support for legacy layouts
 
 ## Local Development

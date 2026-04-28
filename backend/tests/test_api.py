@@ -10,6 +10,7 @@ from backend.app.artifacts import ValidatedArtifact
 from backend.app.database import connect
 from backend.app.main import app
 from backend.app.openrouter import ChatResult, EmbeddingResult, OpenRouterClient, OpenRouterResponseError
+from backend.app.providers import DEFAULT_PROVIDER_ID, provider_registry
 from backend.app.settings_store import get_openrouter_key, set_setting
 from backend.app.usage import UsageInfo
 from backend.app.utils import now
@@ -491,6 +492,13 @@ def test_models_endpoint_normalizes_openrouter_models(monkeypatch, tmp_path):
         assert payload[0]["id"] == "openai/gpt-test"
         assert payload[0]["pricing"]["prompt"] == 0.0000001
         assert payload[0]["supported_parameters"] == ["response_format"]
+
+
+def test_provider_registry_keeps_openrouter_as_active_provider():
+    provider = provider_registry().active()
+
+    assert provider.id == DEFAULT_PROVIDER_ID
+    assert provider.display_name == "OpenRouter"
 
 
 def test_chat_usage_is_stored_on_user_and_assistant_messages(monkeypatch, tmp_path):

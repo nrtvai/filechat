@@ -50,6 +50,7 @@ from .models import CitationOut
 from .openrouter import ChatResult, OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
 from .orchestration import build_preflight, is_broad_create_request
 from .prompt_context import build_prompt_context, context_profile, refresh_session_context
+from .providers import provider_registry
 from .settings_store import current_app_settings
 from .survey import build_survey_artifacts, read_extracted_file_texts
 from .usage import UsageInfo, record_usage_event
@@ -380,7 +381,7 @@ async def semantic_retrieve(
             ).fetchall()
             return [source_from_row(row, score=1.0) for row in fallback_rows], [r["id"] for r in unavailable]
 
-    embedding = await OpenRouterClient().embedding_result([retrieval_query], model)
+    embedding = await provider_registry().active().embedding_result([retrieval_query], model)
     query_vector = embedding.vectors[0]
     if message_id:
         record_usage_event(
@@ -614,14 +615,15 @@ def _replace_draft_artifact(artifacts: list[dict[str, Any]], draft: dict[str, An
 
 
 async def _chat_with_optional_context(chat_kwargs: dict[str, Any]) -> ChatResult:
+    provider = provider_registry().active()
     try:
-        return await OpenRouterClient().chat(**chat_kwargs)
+        return await provider.chat(**chat_kwargs)
     except TypeError as exc:
         if "prompt_context" not in str(exc):
             raise
         legacy_kwargs = dict(chat_kwargs)
         legacy_kwargs.pop("prompt_context", None)
-        return await OpenRouterClient().chat(**legacy_kwargs)
+        return await provider.chat(**legacy_kwargs)
 
 
 async def answer(session_id: str, question: str) -> str:
@@ -720,7 +722,7 @@ async def execute_agent_run(run_id: str) -> str | None:
         prompt_context = build_prompt_context(session_id=session_id, question=question, history=history)
         update_run_prompt_context(run_id, prompt_context)
         if not run.task_contract:
-            raw_contract = await OpenRouterClient().plan_task(
+            raw_contract = await provider_registry().active().plan_task(
                 model=model_assignments.get("orchestrator", {}).get("model") or settings["orchestrator_model"],
                 question=question,
                 file_manifest=file_manifest(session_id),
@@ -1183,7 +1185,7 @@ async def execute_agent_run(run_id: str) -> str | None:
                 and profile.get("drafting_policy") == "model_polished_evidence"
             )
             if can_polish_draft:
-                draft_chat = await OpenRouterClient().write_draft_from_evidence(
+                draft_chat = await provider_registry().active().write_draft_from_evidence(
                     model=settings["writing_model"],
                     question=effective_question,
                     prompt_context=prompt_context,
@@ -1455,7 +1457,7 @@ async def answer_legacy(session_id: str, question: str) -> str:
     for source_id, item in enumerate(retrieved, start=1):
         sources.append({**item, "source_id": source_id})
     settings = current_app_settings()
-    chat = await OpenRouterClient().chat(
+    chat = await provider_registry().active().chat(
         model=settings["chat_model"],
         question=question,
         sources=sources,
