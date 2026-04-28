@@ -22,6 +22,7 @@ from .agent_runs import (
 )
 from .agent_runtime import ensure_provider_ready, verify_openrouter_provider
 from .auth import Principal, current_principal, require_log_exporter, require_settings_admin
+from .bot_integrations import slack_attachments, telegram_attachments, verify_slack_signature, verify_telegram_secret
 from .config import get_settings
 from .database import connect, init_db
 from .ingest import process_file
@@ -165,6 +166,121 @@ def queue_file_for_processing(conn, file_id: str) -> None:
         "UPDATE files SET status = ?, progress = ?, error = NULL, updated_at = ? WHERE id = ?",
         ("queued", 0, now(), file_id),
     )
+
+
+def integration_principal(service: str, organization_id: str = "org_single") -> Principal:
+    return Principal(
+        user_id=f"usr_integration_{service}",
+        display_name=f"{service.title()} integration",
+        email=None,
+        role="member",
+        organization_id=organization_id,
+        edition="community",
+        auth_test_mode=False,
+        auth_mode=f"{service}_webhook",
+    )
+
+
+def reject_bot_webhook(service: str, reason: str, status_code: int = 401):
+    principal = integration_principal(service)
+    capture_internal_issue(
+        organization_id=principal.organization_id,
+        created_by=principal.user_id,
+        source="bot",
+        severity="warning",
+        title=f"{service.title()} webhook rejected",
+        body=reason,
+        metadata={"service": service, "reason": reason},
+    )
+    record_audit_event(
+        principal,
+        action="bot.webhook_rejected",
+        target_type="integration",
+        target_id=service,
+        metadata={"service": service, "reason": reason},
+    )
+    raise HTTPException(status_code=status_code, detail=reason)
+
+
+def queue_integration_attachments(
+    *,
+    service: str,
+    attachments: list[dict[str, object]],
+    background: BackgroundTasks,
+):
+    principal = integration_principal(service)
+    session_id = new_id("ses")
+    stamp = now()
+    title = f"{service.title()} attachment intake"
+    accepted: list[FileRecord] = []
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO sessions (id, title, organization_id, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, title, principal.organization_id, principal.user_id, stamp, stamp),
+        )
+    for attachment in attachments:
+        body = attachment["body"]
+        if not isinstance(body, bytes):
+            continue
+        name = str(attachment.get("name") or f"{service}-attachment.txt")
+        digest = sha256_bytes(body)
+        ext = extension(name)
+        stored_path = get_settings().resolved_data_dir / "uploads" / f"{digest}.{ext}"
+        if not stored_path.exists():
+            with stored_path.open("wb") as handle:
+                handle.write(body)
+        created_file = False
+        with connect() as conn:
+            existing = conn.execute(
+                "SELECT * FROM files WHERE hash = ? AND organization_id = ?",
+                (digest, principal.organization_id),
+            ).fetchone()
+            if existing:
+                file_id = existing["id"]
+            else:
+                file_id = new_id("fil")
+                conn.execute(
+                    """
+                    INSERT INTO files
+                    (id, hash, organization_id, created_by, name, type, size, path, status, progress, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        file_id,
+                        digest,
+                        principal.organization_id,
+                        principal.user_id,
+                        name,
+                        ext.upper(),
+                        len(body),
+                        str(stored_path),
+                        "queued",
+                        0,
+                        now(),
+                        now(),
+                    ),
+                )
+                created_file = True
+            conn.execute(
+                "INSERT OR IGNORE INTO session_files (session_id, file_id, attached_at) VALUES (?, ?, ?)",
+                (session_id, file_id, now()),
+            )
+            row = conn.execute(
+                "SELECT * FROM files WHERE id = ? AND organization_id = ?",
+                (file_id, principal.organization_id),
+            ).fetchone()
+            if created_file or row["status"] in {"failed", "queued"}:
+                queue_file_for_processing(conn, file_id)
+                row = conn.execute(
+                    "SELECT * FROM files WHERE id = ? AND organization_id = ?",
+                    (file_id, principal.organization_id),
+                ).fetchone()
+        background.add_task(process_file, file_id, session_id)
+        accepted.append(file_out(row, session_id))
+    return {"ok": True, "service": service, "session_id": session_id, "accepted": len(accepted), "files": accepted}
 
 
 def citations_for(message_id: str):
@@ -423,6 +539,39 @@ async def list_openrouter_models(
 @app.get("/api/models/recommendations")
 def get_model_recommendations(task: str = Query(default="")):
     return model_recommendations(task)
+
+
+@app.post("/api/integrations/slack/events")
+async def slack_events(request: Request, background: BackgroundTasks):
+    body = await request.body()
+    ok, reason = verify_slack_signature(
+        body=body,
+        timestamp=request.headers.get("X-Slack-Request-Timestamp"),
+        signature=request.headers.get("X-Slack-Signature"),
+    )
+    if not ok:
+        reject_bot_webhook("slack", reason)
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        reject_bot_webhook("slack", "Slack payload was not valid JSON.", status_code=400)
+    if payload.get("type") == "url_verification":
+        return {"challenge": payload.get("challenge", "")}
+    attachments = slack_attachments(payload)
+    return queue_integration_attachments(service="slack", attachments=attachments, background=background)
+
+
+@app.post("/api/integrations/telegram/webhook")
+async def telegram_webhook(request: Request, background: BackgroundTasks):
+    ok, reason = verify_telegram_secret(request.headers.get("X-Telegram-Bot-Api-Secret-Token"))
+    if not ok:
+        reject_bot_webhook("telegram", reason)
+    try:
+        payload = await request.json()
+    except Exception:
+        reject_bot_webhook("telegram", "Telegram payload was not valid JSON.", status_code=400)
+    attachments = telegram_attachments(payload if isinstance(payload, dict) else {})
+    return queue_integration_attachments(service="telegram", attachments=attachments, background=background)
 
 
 @app.get("/api/wiki/nodes", response_model=list[WikiNodeOut])

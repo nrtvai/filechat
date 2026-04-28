@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, MetaIssue, ModelInfo, Session, Settings, UsageSummary, WikiEdge, WikiNode } from "./types";
+import type { AgentRun, AgentRunEvent, AgentRunQuestion, AgentRunWorkspaceItem, AuditEvent, BotIngestionResult, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, MetaIssue, ModelInfo, Session, Settings, UsageSummary, WikiEdge, WikiNode } from "./types";
 
 const API = import.meta.env.VITE_API_BASE ?? "/api";
 const TEST_ROLE_KEY = "filechat:test-role";
@@ -82,6 +82,10 @@ export const api = {
   updateWikiEdge: (edgeId: string, body: Partial<Pick<WikiEdge, "relation_type" | "weight" | "confidence" | "properties">>) =>
     request<WikiEdge>(`/wiki/edges/${edgeId}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteWikiEdge: (edgeId: string) => request<{ ok: boolean }>(`/wiki/edges/${edgeId}`, { method: "DELETE" }),
+  ingestSlackEvent: (body: unknown) =>
+    request<BotIngestionResult>("/integrations/slack/events", { method: "POST", body: JSON.stringify(body) }),
+  ingestTelegramWebhook: (body: unknown) =>
+    request<BotIngestionResult>("/integrations/telegram/webhook", { method: "POST", body: JSON.stringify(body) }),
   sessions: () => request<Session[]>("/sessions"),
   createSession: (title?: string) =>
     request<Session>("/sessions", { method: "POST", body: JSON.stringify({ title }) }),
