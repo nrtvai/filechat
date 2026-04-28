@@ -21,6 +21,7 @@ ALLOWED_JSON_RENDER_TYPES: set[str] = {
     "SourceButton",
     "ActionButton",
     "MiniChart",
+    "Timeline",
 }
 
 
@@ -69,6 +70,16 @@ class JsonRenderElement(BaseModel):
             for item in values:
                 if not isinstance(item, dict) or not isinstance(item.get("label"), str) or not _finite_number(item.get("value")):
                     raise ValueError("MiniChart.values must contain label/value objects")
+        elif self.type == "Timeline":
+            items = props.get("items")
+            if not isinstance(items, list) or not items:
+                raise ValueError("Timeline.items must be a non-empty array")
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item.get("label"), str):
+                    raise ValueError("Timeline.items must contain label strings")
+                for key in ("date", "description", "status", "sourceChunkId"):
+                    if item.get(key) is not None and not isinstance(item.get(key), str):
+                        raise ValueError(f"Timeline.items.{key} must be a string")
         return self
 
 
@@ -101,7 +112,7 @@ class RawArtifact(BaseModel):
     source_chunk_ids: list[str] = Field(default_factory=list)
     diagram: str | None = None
     jsonRenderSpec: dict[str, Any] | None = None
-    chart_type: Literal["bar", "line", "pie"] = "bar"
+    chart_type: str = "bar"
     values: list[dict[str, Any]] = Field(default_factory=list)
     data: list[dict[str, Any]] = Field(default_factory=list)
     columns: list[str] = Field(default_factory=list)
@@ -192,6 +203,12 @@ def _chunk_ids_for(raw: RawArtifact, sources: list[dict[str, Any]], default_sour
 
 
 def _chart_spec(raw: RawArtifact) -> dict[str, Any]:
+    if raw.chart_type not in {"bar", "line", "pie"}:
+        if raw.chart_type in {"timeline", "roadmap", "gantt"}:
+            raise ValueError(
+                "The model proposed a timeline chart, but FileChat supports timelines only as JSON-render roadmap artifacts."
+            )
+        raise ValueError(f"Unsupported chart_type `{raw.chart_type}`")
     source_values = raw.values or raw.data
     values: list[dict[str, Any]] = []
     for item in source_values:
@@ -286,7 +303,7 @@ def _normalize_json_render_spec(spec: dict[str, Any]) -> dict[str, Any]:
 
 def _table_spec(raw: RawArtifact) -> dict[str, Any]:
     if raw.jsonRenderSpec is not None:
-        return JsonRenderSpec.model_validate(_normalize_json_render_spec(raw.jsonRenderSpec)).model_dump()
+        return JsonRenderSpec.model_validate(_normalize_json_render_spec(raw.jsonRenderSpec)).model_dump(exclude_none=True)
     columns = [str(column).strip() for column in raw.columns if str(column).strip()]
     if not columns:
         raise ValueError("Table artifact requires columns")
@@ -315,7 +332,7 @@ def _table_spec(raw: RawArtifact) -> dict[str, Any]:
 
 def _summary_panel_spec(raw: RawArtifact) -> dict[str, Any]:
     if raw.jsonRenderSpec is not None:
-        return JsonRenderSpec.model_validate(_normalize_json_render_spec(raw.jsonRenderSpec)).model_dump()
+        return JsonRenderSpec.model_validate(_normalize_json_render_spec(raw.jsonRenderSpec)).model_dump(exclude_none=True)
     if not raw.sections:
         raise ValueError("Summary panel requires sections")
     elements: dict[str, Any] = {
@@ -372,7 +389,7 @@ def validate_artifacts_with_report(raw_artifacts: list[Any], sources: list[dict[
                 if raw.jsonRenderSpec is None:
                     raise ValueError(f"{raw.kind} artifact requires jsonRenderSpec")
                 spec_model = JsonRenderSpec.model_validate(_normalize_json_render_spec(raw.jsonRenderSpec))
-                spec = spec_model.model_dump()
+                spec = spec_model.model_dump(exclude_none=True)
 
             validated.append(
                 ValidatedArtifact(

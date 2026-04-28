@@ -828,7 +828,7 @@ function parseMessageBlocks(content: string): MessageBlock[] {
       code.push(line);
       continue;
     }
-    const listMatch = line.match(/^\s*[-*]\s+(.+)/);
+    const listMatch = line.match(/^\s*[-*•]\s+(.+)/);
     if (listMatch) {
       flushParagraph();
       list.push(listMatch[1]);
@@ -1425,6 +1425,18 @@ function SettingsTab({
           <small>Source: {settings?.openrouter_key_source ?? "loading"}</small>
           <small>Scope: {settings?.settings_scope ?? "single_user"}</small>
           {settings?.openrouter_provider_message && <small>{settings.openrouter_provider_message}</small>}
+        </div>
+      </div>
+      <div className="enterprise-config-note">
+        <ShieldCheck size={16} />
+        <div>
+          <strong>{settings?.edition === "enterprise" ? "Enterprise configuration active" : "Community configuration active"}</strong>
+          <small>
+            {settings?.edition === "enterprise"
+              ? "Enterprise role gates are enabled from environment configuration."
+              : "Enable local enterprise testing with FILECHAT_EDITION=enterprise and FILECHAT_AUTH_TEST_MODE=true."}
+          </small>
+          <small>Use FILECHAT_TRUSTED_AUTH_HEADERS=true only behind a trusted auth adapter that strips inbound role headers.</small>
         </div>
       </div>
       {canManageProviderKeys ? (

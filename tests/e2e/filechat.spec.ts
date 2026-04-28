@@ -57,3 +57,40 @@ test("broad Korean analysis request asks a planning question then builds artifac
   await expect(page.getByText("Agent activity")).toBeVisible();
   await expect(page.locator(".right-panel .run-card.failed")).toHaveCount(0);
 });
+
+test("artifact discovery renders JSON options instead of prose fallback", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Attach files" })).toBeEnabled();
+  await page.setInputFiles("input[type='file']", {
+    name: "ai-roadmap.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("AI adoption memo. 4월 proposal review. 5월 training. 6월 consulting and tool build.")
+  });
+
+  await expect(page.getByRole("heading", { name: "1 of 1 files ready" })).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel("Ask a question about the selected files").fill("what charts and docs can you make with this?");
+  await page.getByRole("button", { name: /Ask/ }).click();
+
+  await expect(page.locator(".artifact-decision_cards .json-artifact-card h4")).toHaveText("Available Charts And Docs", { timeout: 15_000 });
+  await expect(page.locator(".artifact-decision_cards").getByText("AI adoption roadmap").first()).toBeVisible();
+  await expect(page.getByText(/could not render/i)).toHaveCount(0);
+});
+
+test("roadmap chart request renders JSON timeline artifact", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Attach files" })).toBeEnabled();
+  await page.setInputFiles("input[type='file']", {
+    name: "roadmap.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("AI adoption roadmap: 4월 proposal review. 5월 foundational training. 6월 consulting and tool build. 7월 support.")
+  });
+
+  await expect(page.getByRole("heading", { name: "1 of 1 files ready" })).toBeVisible({ timeout: 15_000 });
+  await page.getByLabel("Ask a question about the selected files").fill("Create the AI adoption roadmap chart");
+  await page.getByRole("button", { name: /Ask/ }).click();
+
+  await expect(page.getByText("AI Adoption Roadmap")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".json-timeline span.mono", { hasText: "4월" }).first()).toBeVisible();
+  await expect(page.locator(".json-timeline span.mono", { hasText: "5월" }).first()).toBeVisible();
+  await expect(page.getByText(/could not render/i)).toHaveCount(0);
+});

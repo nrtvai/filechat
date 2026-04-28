@@ -24,6 +24,7 @@ PRODUCT_POLICY = {
         "Use deterministic tools for parsing, counting, validation, citations, and rendering.",
         "Use the model for planning, interpretation, wording, and synthesis.",
         "Do not show raw table previews in the main transcript unless explicitly requested.",
+        "Render roadmap and timeline outputs as JSON-render artifacts, not unsupported native chart types.",
         "Use subject-first localized titles and filenames for created files.",
     ],
 }

@@ -20,6 +20,7 @@ type ArtifactRendererProps = {
   onSelectArtifact?: (artifact: Artifact) => void;
 };
 type ChartPoint = { label: string; value: number; source_id?: number; source_chunk_id?: string };
+type TimelineItem = { label: string; date?: string; description?: string; status?: string; sourceChunkId?: string };
 
 const textAlign = z.enum(["left", "center", "right"]).optional();
 
@@ -102,6 +103,18 @@ const catalog = defineCatalog(schema, {
       }),
       description: "A tiny bar chart for grounded numeric comparisons.",
     },
+    Timeline: {
+      props: z.object({
+        items: z.array(z.object({
+          label: z.string(),
+          date: z.string().optional(),
+          description: z.string().optional(),
+          status: z.string().optional(),
+          sourceChunkId: z.string().optional(),
+        })).min(1),
+      }),
+      description: "A cited roadmap or milestone timeline.",
+    },
   },
   actions: {},
 });
@@ -181,6 +194,29 @@ const { registry } = defineRegistry(catalog, {
             </div>
           ))}
         </div>
+      );
+    },
+    Timeline: ({ props }) => {
+      const action = useArtifactAction();
+      const items = props.items as TimelineItem[];
+      return (
+        <ol className="json-timeline">
+          {items.map((item, index) => (
+            <li key={`${item.label}-${index}`}>
+              <div>
+                {item.date && <span className="mono">{item.date}</span>}
+                <strong>{item.label}</strong>
+                {item.status && <em>{item.status}</em>}
+              </div>
+              {item.description && <p>{item.description}</p>}
+              {item.sourceChunkId && (
+                <button className="artifact-inline-action" type="button" onClick={() => action({ type: "source", payload: { chunkId: item.sourceChunkId } })}>
+                  Open source
+                </button>
+              )}
+            </li>
+          ))}
+        </ol>
       );
     },
   },

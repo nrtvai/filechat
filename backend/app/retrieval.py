@@ -43,6 +43,15 @@ from .agent_runtime import (
     review_contract_result,
     update_contract_user_direction,
 )
+from .artifact_discovery import (
+    build_artifact_options_artifact,
+    build_timeline_artifact,
+    discovery_answer,
+    is_artifact_discovery_request,
+    is_timeline_request,
+    timeline_answer,
+    timeline_contract,
+)
 from .artifacts import ValidatedArtifact, validate_artifacts_with_report
 from .database import connect
 from .models import AgentPhase
@@ -235,6 +244,13 @@ def _tool_failure_from_warning(warning: str) -> ToolFailure:
         user_message="OpenRouter did not return usable model output; FileChat used local file analysis where possible.",
         technical_detail=warning,
     )
+
+
+def _artifact_validation_failure_message(warnings: list[str]) -> str:
+    detail = " ".join(warnings)
+    if "timeline chart" in detail:
+        return "The model proposed a timeline chart, but FileChat supports timelines only as JSON-render roadmap artifacts. Retry as a roadmap/timeline artifact."
+    return "The model returned an artifact shape that FileChat could not safely render. Retry the artifact or choose one of the structured options."
 
 
 def _has_ready_embeddings(session_id: str, model: str) -> bool:
@@ -638,7 +654,7 @@ async def answer(session_id: str, question: str) -> str:
     if current_question:
         content = current_question.question
     elif latest and latest.status == "needs_revision":
-        content = "I stopped before saving a result because the semantic quality review did not pass. Please revise the request or retry with clearer direction."
+        content = latest.error or "I stopped before saving a result because the semantic quality review did not pass. Please revise the request or retry with clearer direction."
     elif latest and latest.status == "needs_setup":
         content = latest.error or "OpenRouter setup needs attention before FileChat can run the model-led workflow."
     else:
@@ -1176,6 +1192,7 @@ async def execute_agent_run(run_id: str) -> str | None:
             chat_kwargs["reasoning_effort"] = settings["reasoning_effort"]
         writing_failure: ToolFailure | None = None
         used_evidence_draft = False
+        local_structured_output = False
         try:
             profile = context_profile()
             can_polish_draft = bool(
@@ -1184,7 +1201,54 @@ async def execute_agent_run(run_id: str) -> str | None:
                 and any(artifact.get("kind") == "file_draft" for artifact in deterministic_artifacts)
                 and profile.get("drafting_policy") == "model_polished_evidence"
             )
-            if can_polish_draft:
+            artifact_discovery_request = is_artifact_discovery_request(effective_question, task_contract)
+            timeline_request = is_timeline_request(effective_question, task_contract)
+            if not deterministic_artifacts and artifact_discovery_request:
+                deterministic_artifacts = [build_artifact_options_artifact(effective_question, task_contract, sources)]
+                chat = ChatResult(
+                    answer=discovery_answer(task_contract),
+                    cited_source_ids=[sources[0]["source_id"]],
+                    artifacts=[],
+                    model="local-artifact-discovery",
+                    usage=UsageInfo(),
+                )
+                local_structured_output = True
+                record_run_event(
+                    run_id,
+                    type="artifact_synthesized",
+                    summary="Synthesized a JSON-rendered artifact option panel",
+                    detail={"artifact": "decision_cards"},
+                )
+            elif not deterministic_artifacts and timeline_request:
+                timeline_artifact = build_timeline_artifact(effective_question, task_contract, sources)
+                if timeline_artifact:
+                    task_contract = timeline_contract(task_contract)
+                    update_run_contract(run_id, task_contract=task_contract)
+                    prompt_context = build_prompt_context(
+                        session_id=session_id,
+                        question=effective_question,
+                        task_contract=task_contract,
+                        history=history,
+                    )
+                    update_run_prompt_context(run_id, prompt_context)
+                    deterministic_artifacts = [timeline_artifact]
+                    chat = ChatResult(
+                        answer=timeline_answer(task_contract),
+                        cited_source_ids=[sources[0]["source_id"]],
+                        artifacts=[],
+                        model="local-timeline-builder",
+                        usage=UsageInfo(),
+                    )
+                    local_structured_output = True
+                    record_run_event(
+                        run_id,
+                        type="artifact_synthesized",
+                        summary="Synthesized a JSON-rendered roadmap timeline",
+                        detail={"artifact": "summary_panel", "component": "Timeline"},
+                    )
+                else:
+                    chat = await _chat_with_optional_context(chat_kwargs)
+            elif can_polish_draft:
                 draft_chat = await provider_registry().active().write_draft_from_evidence(
                     model=settings["writing_model"],
                     question=effective_question,
@@ -1311,7 +1375,7 @@ async def execute_agent_run(run_id: str) -> str | None:
             )
             artifact_report = validate_artifacts_with_report(deterministic_artifacts, sources, default_source_ids=cited_ids)
             review_warnings.extend(artifact_report.warnings)
-        elif deterministic_artifacts and not any(artifact.kind == "chart" for artifact in artifact_report.artifacts):
+        elif deterministic_artifacts and not local_structured_output and not any(artifact.kind == "chart" for artifact in artifact_report.artifacts):
             fallback_report = validate_artifacts_with_report(deterministic_artifacts, sources, default_source_ids=cited_ids)
             artifact_report.artifacts.extend(fallback_report.artifacts)
             artifact_report.warnings.extend(fallback_report.warnings)
@@ -1319,7 +1383,7 @@ async def execute_agent_run(run_id: str) -> str | None:
         if artifact_report.artifacts and not cited_ids and sources:
             cited_ids = [sources[0]["source_id"]]
         answer_content = chat.answer
-        if deterministic_artifacts and not chat.artifacts and not used_evidence_draft:
+        if deterministic_artifacts and not chat.artifacts and not used_evidence_draft and not local_structured_output:
             answer_content = _answer_from_artifacts(task_contract, deterministic_artifacts)
         degradation_notes = []
         if vector_failure:
@@ -1338,16 +1402,21 @@ async def execute_agent_run(run_id: str) -> str | None:
                     "result": "no valid artifact",
                 },
             )
-            answer_content = (
-                f"{answer_content}\n\n"
-                "I could not render the requested artifact from the available structured data."
-            )
+            answer_content = _artifact_validation_failure_message(artifact_report.warnings)
         contract_review = review_contract_result(
             task_contract=task_contract,
             answer=answer_content,
             artifacts=artifact_report.artifacts,
             cited_source_ids=cited_ids,
         )
+        if chat.artifacts and artifact_report.warnings and not artifact_report.artifacts:
+            contract_review = {
+                **contract_review,
+                "passed": False,
+                "score": 0.0,
+                "failures": list(dict.fromkeys([*contract_review.get("failures", []), answer_content])),
+                "outcome": "needs_revision",
+            }
         update_run_contract(run_id, review_scores=contract_review, revision_required=not contract_review["passed"])
         record_run_event(
             run_id,

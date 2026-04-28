@@ -585,6 +585,40 @@ button { cursor: pointer; }
   font-family: var(--f-mono);
   font-size: 10px;
 }
+.json-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.json-timeline li {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+.json-timeline li > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+.json-timeline strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.json-timeline span,
+.json-timeline em {
+  color: var(--ink-4);
+  font-style: normal;
+  font-size: 10px;
+}
+.json-timeline p {
+  margin: 3px 0 6px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
 .native-chart {
   border: 1px solid var(--rule-2);
   background: var(--paper);
@@ -1218,6 +1252,23 @@ button { cursor: pointer; }
 .settings-status.locked { border-color: var(--accent-2); }
 .settings-status strong, .settings-status small { display: block; }
 .settings-status small { color: var(--ink-4); margin-top: 2px; }
+.enterprise-config-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--rule-2);
+  background: var(--paper);
+  padding: 10px;
+}
+.enterprise-config-note strong,
+.enterprise-config-note small {
+  display: block;
+}
+.enterprise-config-note small {
+  color: var(--ink-4);
+  margin-top: 2px;
+  line-height: 1.4;
+}
 .settings-panel label {
   display: flex;
   flex-direction: column;

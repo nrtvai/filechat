@@ -545,6 +545,30 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "admin" })).not.toBeInTheDocument();
   });
 
+  it("shows how enterprise configuration is enabled from environment settings", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.includes("/api/models?kind=chat")) return Response.json([]);
+      if (url.includes("/api/models?kind=embedding")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "settings" }));
+    expect(screen.getByText("Community configuration active")).toBeInTheDocument();
+    expect(screen.getByText(/FILECHAT_EDITION=enterprise/)).toBeInTheDocument();
+    expect(screen.getByText(/FILECHAT_TRUSTED_AUTH_HEADERS=true/)).toBeInTheDocument();
+  });
+
   it("puts enterprise provider key management in the admin console", async () => {
     const enterpriseSettings: Settings = {
       ...settings,
@@ -771,6 +795,71 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
     expect(await screen.findByText("Artifacts · this session")).toBeInTheDocument();
     expect(screen.getByText("1 source chunk")).toBeInTheDocument();
+  });
+
+  it("renders decision cards with timeline JSON-render components", async () => {
+    const cited = citation("cit_1");
+    const optionsArtifact = artifact("art_options", "decision_cards", {
+      root: "card",
+      elements: {
+        card: { type: "ArtifactCard", props: { title: "Available Charts And Docs" }, children: ["timeline", "action", "source"] },
+        timeline: {
+          type: "Timeline",
+          props: {
+            items: [
+              { date: "4월", label: "Proposal review", description: "Review proposal and scope.", status: "planned", sourceChunkId: "chk_1" },
+              { date: "5월", label: "Training", description: "Run foundational education.", status: "planned", sourceChunkId: "chk_1" }
+            ]
+          },
+          children: []
+        },
+        action: { type: "ActionButton", props: { label: "Copy request", action: "copy", value: "Create roadmap" }, children: [] },
+        source: { type: "SourceButton", props: { label: "Open source", chunkId: "chk_1" }, children: [] }
+      }
+    });
+    const answer = { ...message("msg_answer", "ses_new", "assistant", "I mapped the options."), citations: [cited], artifacts: [optionsArtifact] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Available Charts And Docs")).toBeInTheDocument();
+    expect(screen.getByText("Proposal review")).toBeInTheDocument();
+    expect(screen.getByText("4월")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Open source" })[0]);
+    expect(await screen.findByText("Source excerpt")).toBeInTheDocument();
+  });
+
+  it("renders bullet glyph assistant responses as lists", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "Options:\n\n• Roadmap chart\n• Executive summary");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole("list")).toBeInTheDocument();
+    expect(screen.getByText("Roadmap chart")).toBeInTheDocument();
+    expect(screen.getByText("Executive summary")).toBeInTheDocument();
   });
 
   it("renders typed chart artifacts without crashing on data-shaped specs", async () => {

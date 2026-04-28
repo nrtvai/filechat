@@ -328,7 +328,9 @@ class OpenRouterClient:
                 "source_contract": (
                     "Return JSON with keys answer, cited_source_ids, and optional artifacts. "
                     "cited_source_ids must be source numbers used. Artifact kinds: mermaid, chart, table, decision_cards, comparison, summary_panel, file_draft. "
-                    "Charts require chart_type, x_label, y_label, values [{label,value,source_id}]. File drafts require filename, format, content."
+                    "Charts require chart_type bar|line|pie, x_label, y_label, values [{label,value,source_id}]. "
+                    "For roadmap, gantt, or timeline outputs, do not use chart_type timeline; use summary_panel or decision_cards with a jsonRenderSpec Timeline component. "
+                    "File drafts require filename, format, content."
                 ),
             },
         )

@@ -124,6 +124,8 @@ Use `FILECHAT_EDITION=enterprise` with `FILECHAT_AUTH_TEST_MODE=true` to switch 
 
 Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise mode, members can use sessions and files, admins can manage provider/model settings, and only owners can export audit logs. Set `FILECHAT_AUTH_TEST_MODE=true` in local development to impersonate owner, admin, and member roles without creating real accounts. Audit metadata is append-only and redacted before storage; file security metadata is limited to non-content identifiers such as IDs, hashes, type, size, and status.
 
+The Settings/Admin panels show the active edition and scope, but enterprise mode is still configured by environment variables. If the UI shows Community / single_user, add `FILECHAT_EDITION=enterprise` and `FILECHAT_AUTH_TEST_MODE=true` to `.env`, then restart the backend.
+
 Runtime complaints and internal failures can be captured as sanitized meta issues with `POST /api/meta-issues`; admins can review and triage them under `/api/admin/meta-issues`. GitHub issue creation is off by default and only runs when the `FILECHAT_META_ISSUES_GITHUB_*` settings are present.
 
 Org/user LLM wiki groundwork is exposed as API-only graph storage under `/api/wiki/nodes` and `/api/wiki/edges`. Nodes and edges are scoped to the current organization, user-scoped nodes are visible only to their owner, and properties/source references are sanitized before storage.

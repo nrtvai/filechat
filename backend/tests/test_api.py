@@ -11,7 +11,7 @@ from backend.app.audit import record_audit_event
 from backend.app.auth import Principal
 from backend.app.config import get_settings
 from backend.app.agent_runtime import review_contract_result
-from backend.app.artifacts import ValidatedArtifact
+from backend.app.artifacts import ValidatedArtifact, validate_artifacts_with_report
 from backend.app.database import connect
 from backend.app.main import app
 from backend.app.openrouter import ChatResult, EmbeddingResult, OpenRouterClient, OpenRouterResponseError
@@ -968,6 +968,155 @@ def test_nested_json_render_artifact_is_normalized_and_returned(monkeypatch, tmp
         assert artifact["kind"] == "summary_panel"
         assert artifact["spec"]["root"] == "root"
         assert artifact["spec"]["elements"]["root"]["type"] == "ArtifactCard"
+
+
+def test_docx_artifact_discovery_returns_json_render_options(monkeypatch, tmp_path):
+    async def fail_chat(self, *, model, question, sources, unavailable, history=None, prompt_context=None):
+        raise AssertionError("artifact discovery should not call model writing")
+
+    monkeypatch.setattr(OpenRouterClient, "chat", fail_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "AI memo"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "memo.txt",
+                    "AI adoption memo. 4월 proposal review. 5월 training. 6월 consulting and tool build.".encode("utf-8"),
+                    "text/plain",
+                )
+            },
+        )
+        with connect() as conn:
+            conn.execute("UPDATE files SET name = ?, type = ? WHERE organization_id = ?", ("ai-roadmap.docx", "DOCX", "org_single"))
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "what charts and docs can you make with this?"},
+        )
+
+        assert answer.status_code == 200
+        payload = answer.json()
+        assert "could not render" not in payload["content"].lower()
+    assert payload["artifacts"][0]["kind"] == "decision_cards"
+    spec = payload["artifacts"][0]["spec"]
+    assert spec["root"] == "card"
+    assert "visible" not in spec["elements"]["card"]
+    assert any(element["type"] == "ActionButton" for element in spec["elements"].values())
+
+
+def test_timeline_roadmap_renders_as_json_summary_artifact(monkeypatch, tmp_path):
+    async def fail_chat(self, *, model, question, sources, unavailable, history=None, prompt_context=None):
+        raise AssertionError("timeline roadmap should use the local JSON renderer path")
+
+    monkeypatch.setattr(OpenRouterClient, "chat", fail_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Roadmap"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "roadmap.txt",
+                    "AI adoption roadmap: 4월 제안서 검토. 5월 기초 교육. 6월 컨설팅 및 툴 제작. 7월 이후 AS.".encode("utf-8"),
+                    "text/plain",
+                )
+            },
+        )
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "Create the AI adoption roadmap chart"},
+        )
+
+        assert answer.status_code == 200
+        payload = answer.json()
+        artifact = payload["artifacts"][0]
+        assert artifact["kind"] == "summary_panel"
+        assert artifact["spec"]["elements"]["timeline"]["type"] == "Timeline"
+        assert "visible" not in artifact["spec"]["elements"]["timeline"]
+        assert artifact["spec"]["elements"]["timeline"]["props"]["items"][0]["date"] == "4월"
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["task_contract"]["required_outputs"] == ["summary_panel"]
+
+
+def test_timeline_json_render_spec_validates_but_timeline_chart_type_does_not():
+    sources = [{"source_id": 1, "chunk_id": "chk_1"}]
+    valid = validate_artifacts_with_report(
+        [
+            {
+                "kind": "summary_panel",
+                "title": "Roadmap",
+                "source_ids": [1],
+                "jsonRenderSpec": {
+                    "root": "card",
+                    "elements": {
+                        "card": {"type": "ArtifactCard", "props": {"title": "Roadmap"}, "children": ["timeline"]},
+                        "timeline": {
+                            "type": "Timeline",
+                            "props": {"items": [{"date": "4월", "label": "Kickoff", "description": "Start", "sourceChunkId": "chk_1"}]},
+                            "children": [],
+                        },
+                    },
+                },
+            }
+        ],
+        sources,
+    )
+    invalid = validate_artifacts_with_report(
+        [
+            {
+                "kind": "chart",
+                "title": "Roadmap",
+                "source_ids": [1],
+                "chart_type": "timeline",
+                "values": [{"label": "4월", "value": 1, "source_id": 1}],
+            }
+        ],
+        sources,
+    )
+
+    assert valid.artifacts[0].spec["elements"]["timeline"]["type"] == "Timeline"
+    assert invalid.artifacts == []
+    assert "timeline chart" in invalid.warnings[0]
+
+
+def test_unsupported_timeline_chart_does_not_complete_as_prose_only(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None, prompt_context=None):
+        return ChatResult(
+            answer="Here is the roadmap chart.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "chart",
+                    "title": "Roadmap",
+                    "source_ids": [1],
+                    "chart_type": "timeline",
+                    "values": [{"label": "Kickoff", "value": 1, "source_id": 1}],
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr(OpenRouterClient, "chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Bad timeline"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("source.txt", b"Source text for a process chart.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Make a chart"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+
+        assert answer.status_code == 200
+        assert run["status"] == "needs_revision"
+        assert "timeline chart" in run["error"]
+        assert answer.json()["artifacts"] == []
+        assert "could not render" not in answer.json()["content"].lower()
 
 
 def test_invalid_artifact_specs_are_not_persisted(monkeypatch, tmp_path):
