@@ -296,6 +296,68 @@ class MetaIssueOut(BaseModel):
     updated_at: str
 
 
+class WikiNodeCreate(BaseModel):
+    scope: Literal["organization", "user"] = "organization"
+    type: str = Field(default="note", min_length=1)
+    title: str = Field(min_length=1)
+    summary: str = ""
+    properties: dict[str, Any] = Field(default_factory=dict)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class WikiNodePatch(BaseModel):
+    type: str | None = None
+    title: str | None = None
+    summary: str | None = None
+    properties: dict[str, Any] | None = None
+    source_refs: list[dict[str, Any]] | None = None
+
+
+class WikiNodeOut(BaseModel):
+    id: str
+    organization_id: str
+    owner_user_id: str | None = None
+    scope: Literal["organization", "user"]
+    type: str
+    title: str
+    summary: str = ""
+    properties: dict[str, Any] = Field(default_factory=dict)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+    created_by: str
+    created_at: str
+    updated_at: str
+
+
+class WikiEdgeCreate(BaseModel):
+    source_node_id: str
+    target_node_id: str
+    relation_type: str = Field(default="related_to", min_length=1)
+    weight: float = Field(default=1.0, ge=0.0, le=1.0)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class WikiEdgePatch(BaseModel):
+    relation_type: str | None = None
+    weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    properties: dict[str, Any] | None = None
+
+
+class WikiEdgeOut(BaseModel):
+    id: str
+    organization_id: str
+    source_node_id: str
+    target_node_id: str
+    relation_type: str
+    weight: float
+    confidence: float
+    properties: dict[str, Any] = Field(default_factory=dict)
+    created_by: str
+    created_at: str
+    updated_at: str
+
+
 class RetryRunRequest(BaseModel):
     mode: Literal["repair", "rerun"] = "rerun"
 

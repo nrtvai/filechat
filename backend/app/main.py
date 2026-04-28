@@ -48,6 +48,12 @@ from .models import (
     SettingsOut,
     SettingsPatch,
     UsageSummary,
+    WikiEdgeCreate,
+    WikiEdgeOut,
+    WikiEdgePatch,
+    WikiNodeCreate,
+    WikiNodeOut,
+    WikiNodePatch,
 )
 from .openrouter import OpenRouterClient
 from .orchestration import build_preflight, model_recommendations
@@ -59,6 +65,18 @@ from .security import sanitize_metadata
 from .settings_store import clear_saved_openrouter_key, current_app_settings, get_openrouter_key, set_openrouter_key, set_setting
 from .usage import usage_for_file, usage_for_message, usage_summary
 from .utils import extension, json_loads, new_id, now, sha256_bytes
+from .wiki import (
+    create_edge,
+    create_node,
+    delete_edge,
+    delete_node,
+    get_edge,
+    get_node,
+    list_edges,
+    list_nodes,
+    update_edge,
+    update_node,
+)
 
 
 @asynccontextmanager
@@ -405,6 +423,79 @@ async def list_openrouter_models(
 @app.get("/api/models/recommendations")
 def get_model_recommendations(task: str = Query(default="")):
     return model_recommendations(task)
+
+
+@app.get("/api/wiki/nodes", response_model=list[WikiNodeOut])
+def list_wiki_nodes(
+    scope: str | None = Query(default=None, pattern="^(organization|user)$"),
+    type: str | None = Query(default=None),
+    principal: Principal = Depends(current_principal),
+):
+    return list_nodes(principal, scope=scope, node_type=type)
+
+
+@app.post("/api/wiki/nodes", response_model=WikiNodeOut)
+def create_wiki_node(payload: WikiNodeCreate, principal: Principal = Depends(current_principal)):
+    return create_node(principal, payload.model_dump())
+
+
+@app.get("/api/wiki/nodes/{node_id}", response_model=WikiNodeOut)
+def get_wiki_node(node_id: str, principal: Principal = Depends(current_principal)):
+    node = get_node(principal, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Wiki node not found")
+    return node
+
+
+@app.patch("/api/wiki/nodes/{node_id}", response_model=WikiNodeOut)
+def update_wiki_node(node_id: str, payload: WikiNodePatch, principal: Principal = Depends(current_principal)):
+    node = update_node(principal, node_id, payload.model_dump(exclude_none=True))
+    if not node:
+        raise HTTPException(status_code=404, detail="Wiki node not found")
+    return node
+
+
+@app.delete("/api/wiki/nodes/{node_id}")
+def delete_wiki_node(node_id: str, principal: Principal = Depends(current_principal)):
+    if not delete_node(principal, node_id):
+        raise HTTPException(status_code=404, detail="Wiki node not found")
+    return {"ok": True}
+
+
+@app.get("/api/wiki/edges", response_model=list[WikiEdgeOut])
+def list_wiki_edges(principal: Principal = Depends(current_principal)):
+    return list_edges(principal)
+
+
+@app.post("/api/wiki/edges", response_model=WikiEdgeOut)
+def create_wiki_edge(payload: WikiEdgeCreate, principal: Principal = Depends(current_principal)):
+    edge = create_edge(principal, payload.model_dump())
+    if not edge:
+        raise HTTPException(status_code=404, detail="Wiki edge endpoint node not found")
+    return edge
+
+
+@app.get("/api/wiki/edges/{edge_id}", response_model=WikiEdgeOut)
+def get_wiki_edge(edge_id: str, principal: Principal = Depends(current_principal)):
+    edge = get_edge(principal, edge_id)
+    if not edge:
+        raise HTTPException(status_code=404, detail="Wiki edge not found")
+    return edge
+
+
+@app.patch("/api/wiki/edges/{edge_id}", response_model=WikiEdgeOut)
+def update_wiki_edge(edge_id: str, payload: WikiEdgePatch, principal: Principal = Depends(current_principal)):
+    edge = update_edge(principal, edge_id, payload.model_dump(exclude_none=True))
+    if not edge:
+        raise HTTPException(status_code=404, detail="Wiki edge not found")
+    return edge
+
+
+@app.delete("/api/wiki/edges/{edge_id}")
+def delete_wiki_edge(edge_id: str, principal: Principal = Depends(current_principal)):
+    if not delete_edge(principal, edge_id):
+        raise HTTPException(status_code=404, detail="Wiki edge not found")
+    return {"ok": True}
 
 
 @app.get("/api/sessions", response_model=list[SessionOut])
