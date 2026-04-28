@@ -307,6 +307,35 @@ def init_db() -> None:
               updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS wiki_nodes (
+              id TEXT PRIMARY KEY,
+              organization_id TEXT NOT NULL,
+              owner_user_id TEXT,
+              scope TEXT NOT NULL,
+              type TEXT NOT NULL,
+              title TEXT NOT NULL,
+              summary TEXT NOT NULL DEFAULT '',
+              properties TEXT NOT NULL DEFAULT '{}',
+              source_refs TEXT NOT NULL DEFAULT '[]',
+              created_by TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS wiki_edges (
+              id TEXT PRIMARY KEY,
+              organization_id TEXT NOT NULL,
+              source_node_id TEXT NOT NULL REFERENCES wiki_nodes(id) ON DELETE CASCADE,
+              target_node_id TEXT NOT NULL REFERENCES wiki_nodes(id) ON DELETE CASCADE,
+              relation_type TEXT NOT NULL,
+              weight REAL NOT NULL DEFAULT 1.0,
+              confidence REAL NOT NULL DEFAULT 0.0,
+              properties TEXT NOT NULL DEFAULT '{}',
+              created_by TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS usage_events_session_idx
               ON usage_events(session_id, created_at);
 
@@ -321,6 +350,12 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS meta_issues_org_idx
               ON meta_issues(organization_id, status, created_at);
+
+            CREATE INDEX IF NOT EXISTS wiki_nodes_org_idx
+              ON wiki_nodes(organization_id, scope, type, updated_at);
+
+            CREATE INDEX IF NOT EXISTS wiki_edges_org_idx
+              ON wiki_edges(organization_id, relation_type, updated_at);
 
             CREATE TRIGGER IF NOT EXISTS audit_events_no_update
             BEFORE UPDATE ON audit_events
