@@ -274,6 +274,14 @@ export interface WikiEdge {
   updated_at: string;
 }
 
+export interface BotIngestionResult {
+  ok: boolean;
+  service: "slack" | "telegram";
+  session_id: string;
+  accepted: number;
+  files: FileRecord[];
+}
+
 export interface ContextProfile {
   artifact_policy: "chart+draft" | "all" | "ask_each_run";
   citation_display: "minimized" | "full";
