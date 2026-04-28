@@ -6,6 +6,7 @@ import httpx
 
 from .database import connect
 from .openrouter import OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
+from .providers import provider_registry
 from .settings_store import current_app_settings, set_provider_verification
 
 
@@ -226,8 +227,9 @@ def file_manifest(session_id: str) -> list[dict[str, Any]]:
 
 async def verify_openrouter_provider() -> dict[str, Any]:
     settings = current_app_settings()
+    provider = provider_registry().active()
     try:
-        result = await OpenRouterClient().verify_provider(
+        result = await provider.verify(
             chat_model=settings["chat_model"],
             embedding_model=settings["embedding_model"],
         )
