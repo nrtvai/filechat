@@ -1,0 +1,529 @@
+purchase_order_id,SKU,supplier,lead_time_days,lead_time_variance_days,units_ordered,expected_arrival,delay_risk,expedite_required
+PO-5001,HB-100,"Han River Bottling",12,5,736,2026-01-19,low,no
+PO-5002,HB-500,"Daegu Beverage Lab",15,5,639,2026-01-22,medium,no
+PO-5003,KT-400,"Incheon Assembly",21,8,302,2026-01-28,high,yes
+PO-5004,SN-300,"Busan Fresh Co",19,3,509,2026-01-26,high,no
+PO-5005,HB-200,"West Pack Foods",19,0,588,2026-01-26,high,no
+PO-5006,SN-700,"Jeju Nutri Foods",8,1,411,2026-01-15,low,no
+PO-5007,CP-250,"Seoul Cold Chain",12,2,378,2026-01-19,low,no
+PO-5008,KT-900,"Incheon Assembly",16,3,297,2026-01-23,medium,no
+PO-5009,SN-863,"Incheon Assembly",16,0,392,2026-01-23,medium,no
+PO-5010,KT-870,"Daegu Beverage Lab",20,1,479,2026-01-27,high,no
+PO-5011,AC-877,"Jeju Nutri Foods",9,2,566,2026-01-16,low,no
+PO-5012,HB-884,"Han River Bottling",13,3,653,2026-01-20,medium,no
+PO-5013,SN-891,"West Pack Foods",13,0,740,2026-01-20,medium,no
+PO-5014,KT-898,"Busan Fresh Co",17,1,827,2026-01-24,medium,no
+PO-5015,AC-905,"Incheon Assembly",21,2,914,2026-01-28,high,no
+PO-5016,HB-912,"Daegu Beverage Lab",10,3,425,2026-01-17,low,no
+PO-5017,SN-919,"Jeju Nutri Foods",10,0,512,2026-01-17,low,no
+PO-5018,KT-926,"Han River Bottling",14,1,599,2026-01-21,medium,no
+PO-5019,AC-933,"West Pack Foods",18,2,686,2026-01-25,high,no
+PO-5020,HB-940,"Busan Fresh Co",22,3,773,2026-01-29,high,no
+PO-5021,SN-947,"Incheon Assembly",7,0,860,2026-01-14,low,no
+PO-5022,KT-954,"Daegu Beverage Lab",11,1,947,2026-01-18,low,no
+PO-5023,AC-961,"Jeju Nutri Foods",15,2,1034,2026-01-22,medium,no
+PO-5024,HB-968,"Han River Bottling",19,3,545,2026-01-26,high,no
+PO-5025,HB-100,"Han River Bottling",8,1,828,2026-01-29,low,no
+PO-5026,HB-500,"Daegu Beverage Lab",12,2,717,2026-02-02,low,no
+PO-5027,KT-400,"Incheon Assembly",16,3,336,2026-02-06,medium,no
+PO-5028,SN-300,"Busan Fresh Co",16,0,567,2026-02-06,medium,no
+PO-5029,HB-200,"West Pack Foods",20,1,654,2026-02-10,high,no
+PO-5030,SN-700,"Jeju Nutri Foods",9,2,453,2026-01-30,low,no
+PO-5031,CP-250,"Seoul Cold Chain",13,3,414,2026-02-03,medium,no
+PO-5032,KT-900,"Incheon Assembly",13,0,321,2026-02-03,medium,no
+PO-5033,SN-863,"Incheon Assembly",17,1,426,2026-02-07,medium,no
+PO-5034,KT-870,"Daegu Beverage Lab",21,2,522,2026-02-11,high,no
+PO-5035,AC-877,"Jeju Nutri Foods",10,3,618,2026-01-31,low,no
+PO-5036,HB-884,"Han River Bottling",10,0,714,2026-01-31,low,no
+PO-5037,SN-891,"West Pack Foods",14,1,810,2026-02-04,medium,no
+PO-5038,KT-898,"Busan Fresh Co",18,2,906,2026-02-08,high,no
+PO-5039,AC-905,"Incheon Assembly",22,3,1002,2026-02-12,high,no
+PO-5040,HB-912,"Daegu Beverage Lab",7,0,450,2026-01-28,low,no
+PO-5041,SN-919,"Jeju Nutri Foods",11,1,546,2026-02-01,low,no
+PO-5042,KT-926,"Han River Bottling",15,2,642,2026-02-05,medium,no
+PO-5043,AC-933,"West Pack Foods",19,3,738,2026-02-09,high,no
+PO-5044,HB-940,"Busan Fresh Co",19,0,834,2026-02-09,high,no
+PO-5045,SN-947,"Incheon Assembly",8,1,930,2026-01-29,low,no
+PO-5046,KT-954,"Daegu Beverage Lab",12,2,1026,2026-02-02,low,no
+PO-5047,AC-961,"Jeju Nutri Foods",16,3,1122,2026-02-06,medium,no
+PO-5048,HB-968,"Han River Bottling",16,0,570,2026-02-06,medium,no
+PO-5049,HB-100,"Han River Bottling",9,2,920,2026-02-13,low,no
+PO-5050,HB-500,"Daegu Beverage Lab",13,3,795,2026-02-17,medium,no
+PO-5051,KT-400,"Incheon Assembly",21,8,370,2026-02-25,high,yes
+PO-5052,SN-300,"Busan Fresh Co",17,1,625,2026-02-21,medium,no
+PO-5053,HB-200,"West Pack Foods",21,2,720,2026-02-25,high,no
+PO-5054,SN-700,"Jeju Nutri Foods",10,3,495,2026-02-14,low,no
+PO-5055,CP-250,"Seoul Cold Chain",10,0,450,2026-02-14,low,no
+PO-5056,KT-900,"Incheon Assembly",14,1,345,2026-02-18,medium,no
+PO-5057,SN-863,"Incheon Assembly",18,2,460,2026-02-22,high,no
+PO-5058,KT-870,"Daegu Beverage Lab",22,3,565,2026-02-26,high,no
+PO-5059,AC-877,"Jeju Nutri Foods",7,0,670,2026-02-11,low,no
+PO-5060,HB-884,"Han River Bottling",11,1,775,2026-02-15,low,no
+PO-5061,SN-891,"West Pack Foods",15,2,880,2026-02-19,medium,no
+PO-5062,KT-898,"Busan Fresh Co",19,3,985,2026-02-23,high,no
+PO-5063,AC-905,"Incheon Assembly",19,0,1090,2026-02-23,high,no
+PO-5064,HB-912,"Daegu Beverage Lab",8,1,475,2026-02-12,low,no
+PO-5065,SN-919,"Jeju Nutri Foods",12,2,580,2026-02-16,low,no
+PO-5066,KT-926,"Han River Bottling",16,3,685,2026-02-20,medium,no
+PO-5067,AC-933,"West Pack Foods",16,0,790,2026-02-20,medium,no
+PO-5068,HB-940,"Busan Fresh Co",20,1,895,2026-02-24,high,no
+PO-5069,SN-947,"Incheon Assembly",9,2,1000,2026-02-13,low,no
+PO-5070,KT-954,"Daegu Beverage Lab",13,3,1105,2026-02-17,medium,no
+PO-5071,AC-961,"Jeju Nutri Foods",13,0,1210,2026-02-17,medium,no
+PO-5072,HB-968,"Han River Bottling",17,1,595,2026-02-21,medium,no
+PO-5073,HB-100,"Han River Bottling",12,5,1012,2026-03-02,low,no
+PO-5074,HB-500,"Daegu Beverage Lab",15,5,873,2026-03-05,medium,no
+PO-5075,KT-400,"Incheon Assembly",14,1,404,2026-03-04,medium,no
+PO-5076,SN-300,"Busan Fresh Co",18,2,683,2026-03-08,high,no
+PO-5077,HB-200,"West Pack Foods",22,3,786,2026-03-12,high,no
+PO-5078,SN-700,"Jeju Nutri Foods",7,0,537,2026-02-25,low,no
+PO-5079,CP-250,"Seoul Cold Chain",11,1,486,2026-03-01,low,no
+PO-5080,KT-900,"Incheon Assembly",15,2,369,2026-03-05,medium,no
+PO-5081,SN-863,"Incheon Assembly",19,3,494,2026-03-09,high,no
+PO-5082,KT-870,"Daegu Beverage Lab",19,0,608,2026-03-09,high,no
+PO-5083,AC-877,"Jeju Nutri Foods",8,1,722,2026-02-26,low,no
+PO-5084,HB-884,"Han River Bottling",12,2,836,2026-03-02,low,no
+PO-5085,SN-891,"West Pack Foods",16,3,950,2026-03-06,medium,no
+PO-5086,KT-898,"Busan Fresh Co",16,0,1064,2026-03-06,medium,no
+PO-5087,AC-905,"Incheon Assembly",20,1,1178,2026-03-10,high,no
+PO-5088,HB-912,"Daegu Beverage Lab",9,2,500,2026-02-27,low,no
+PO-5089,SN-919,"Jeju Nutri Foods",13,3,614,2026-03-03,medium,no
+PO-5090,KT-926,"Han River Bottling",13,0,728,2026-03-03,medium,no
+PO-5091,AC-933,"West Pack Foods",17,1,842,2026-03-07,medium,no
+PO-5092,HB-940,"Busan Fresh Co",21,2,956,2026-03-11,high,no
+PO-5093,SN-947,"Incheon Assembly",10,3,1070,2026-02-28,low,no
+PO-5094,KT-954,"Daegu Beverage Lab",10,0,1184,2026-02-28,low,no
+PO-5095,AC-961,"Jeju Nutri Foods",14,1,1298,2026-03-04,medium,no
+PO-5096,HB-968,"Han River Bottling",18,2,620,2026-03-08,high,no
+PO-5097,HB-100,"Han River Bottling",7,0,736,2026-03-11,low,no
+PO-5098,HB-500,"Daegu Beverage Lab",11,1,639,2026-03-15,low,no
+PO-5099,KT-400,"Incheon Assembly",21,8,302,2026-03-25,high,yes
+PO-5100,SN-300,"Busan Fresh Co",19,3,509,2026-03-23,high,no
+PO-5101,HB-200,"West Pack Foods",19,0,588,2026-03-23,high,no
+PO-5102,SN-700,"Jeju Nutri Foods",8,1,411,2026-03-12,low,no
+PO-5103,CP-250,"Seoul Cold Chain",12,2,378,2026-03-16,low,no
+PO-5104,KT-900,"Incheon Assembly",16,3,297,2026-03-20,medium,no
+PO-5105,SN-863,"Incheon Assembly",16,0,392,2026-03-20,medium,no
+PO-5106,KT-870,"Daegu Beverage Lab",20,1,479,2026-03-24,high,no
+PO-5107,AC-877,"Jeju Nutri Foods",9,2,566,2026-03-13,low,no
+PO-5108,HB-884,"Han River Bottling",13,3,653,2026-03-17,medium,no
+PO-5109,SN-891,"West Pack Foods",13,0,740,2026-03-17,medium,no
+PO-5110,KT-898,"Busan Fresh Co",17,1,827,2026-03-21,medium,no
+PO-5111,AC-905,"Incheon Assembly",21,2,914,2026-03-25,high,no
+PO-5112,HB-912,"Daegu Beverage Lab",10,3,425,2026-03-14,low,no
+PO-5113,SN-919,"Jeju Nutri Foods",10,0,512,2026-03-14,low,no
+PO-5114,KT-926,"Han River Bottling",14,1,599,2026-03-18,medium,no
+PO-5115,AC-933,"West Pack Foods",18,2,686,2026-03-22,high,no
+PO-5116,HB-940,"Busan Fresh Co",22,3,773,2026-03-26,high,no
+PO-5117,SN-947,"Incheon Assembly",7,0,860,2026-03-11,low,no
+PO-5118,KT-954,"Daegu Beverage Lab",11,1,947,2026-03-15,low,no
+PO-5119,AC-961,"Jeju Nutri Foods",15,2,1034,2026-03-19,medium,no
+PO-5120,HB-968,"Han River Bottling",19,3,545,2026-03-23,high,no
+PO-5121,HB-100,"Han River Bottling",8,1,828,2026-03-26,low,no
+PO-5122,HB-500,"Daegu Beverage Lab",12,2,717,2026-03-30,low,no
+PO-5123,KT-400,"Incheon Assembly",16,3,336,2026-04-03,medium,no
+PO-5124,SN-300,"Busan Fresh Co",16,0,567,2026-04-03,medium,no
+PO-5125,HB-200,"West Pack Foods",20,1,654,2026-04-07,high,no
+PO-5126,SN-700,"Jeju Nutri Foods",9,2,453,2026-03-27,low,no
+PO-5127,CP-250,"Seoul Cold Chain",13,3,414,2026-03-31,medium,no
+PO-5128,KT-900,"Incheon Assembly",13,0,321,2026-03-31,medium,no
+PO-5129,SN-863,"Incheon Assembly",17,1,426,2026-04-04,medium,no
+PO-5130,KT-870,"Daegu Beverage Lab",21,2,522,2026-04-08,high,no
+PO-5131,AC-877,"Jeju Nutri Foods",10,3,618,2026-03-28,low,no
+PO-5132,HB-884,"Han River Bottling",10,0,714,2026-03-28,low,no
+PO-5133,SN-891,"West Pack Foods",14,1,810,2026-04-01,medium,no
+PO-5134,KT-898,"Busan Fresh Co",18,2,906,2026-04-05,high,no
+PO-5135,AC-905,"Incheon Assembly",22,3,1002,2026-04-09,high,no
+PO-5136,HB-912,"Daegu Beverage Lab",7,0,450,2026-03-25,low,no
+PO-5137,SN-919,"Jeju Nutri Foods",11,1,546,2026-03-29,low,no
+PO-5138,KT-926,"Han River Bottling",15,2,642,2026-04-02,medium,no
+PO-5139,AC-933,"West Pack Foods",19,3,738,2026-04-06,high,no
+PO-5140,HB-940,"Busan Fresh Co",19,0,834,2026-04-06,high,no
+PO-5141,SN-947,"Incheon Assembly",8,1,930,2026-03-26,low,no
+PO-5142,KT-954,"Daegu Beverage Lab",12,2,1026,2026-03-30,low,no
+PO-5143,AC-961,"Jeju Nutri Foods",16,3,1122,2026-04-03,medium,no
+PO-5144,HB-968,"Han River Bottling",16,0,570,2026-04-03,medium,no
+PO-5145,HB-100,"Han River Bottling",12,5,920,2026-04-13,low,no
+PO-5146,HB-500,"Daegu Beverage Lab",15,5,795,2026-04-16,medium,no
+PO-5147,KT-400,"Incheon Assembly",21,8,370,2026-04-22,high,yes
+PO-5148,SN-300,"Busan Fresh Co",17,1,625,2026-04-18,medium,no
+PO-5149,HB-200,"West Pack Foods",21,2,720,2026-04-22,high,no
+PO-5150,SN-700,"Jeju Nutri Foods",10,3,495,2026-04-11,low,no
+PO-5151,CP-250,"Seoul Cold Chain",10,0,450,2026-04-11,low,no
+PO-5152,KT-900,"Incheon Assembly",14,1,345,2026-04-15,medium,no
+PO-5153,SN-863,"Incheon Assembly",18,2,460,2026-04-19,high,no
+PO-5154,KT-870,"Daegu Beverage Lab",22,3,565,2026-04-23,high,no
+PO-5155,AC-877,"Jeju Nutri Foods",7,0,670,2026-04-08,low,no
+PO-5156,HB-884,"Han River Bottling",11,1,775,2026-04-12,low,no
+PO-5157,SN-891,"West Pack Foods",15,2,880,2026-04-16,medium,no
+PO-5158,KT-898,"Busan Fresh Co",19,3,985,2026-04-20,high,no
+PO-5159,AC-905,"Incheon Assembly",19,0,1090,2026-04-20,high,no
+PO-5160,HB-912,"Daegu Beverage Lab",8,1,475,2026-04-09,low,no
+PO-5161,SN-919,"Jeju Nutri Foods",12,2,580,2026-04-13,low,no
+PO-5162,KT-926,"Han River Bottling",16,3,685,2026-04-17,medium,no
+PO-5163,AC-933,"West Pack Foods",16,0,790,2026-04-17,medium,no
+PO-5164,HB-940,"Busan Fresh Co",20,1,895,2026-04-21,high,no
+PO-5165,SN-947,"Incheon Assembly",9,2,1000,2026-04-10,low,no
+PO-5166,KT-954,"Daegu Beverage Lab",13,3,1105,2026-04-14,medium,no
+PO-5167,AC-961,"Jeju Nutri Foods",13,0,1210,2026-04-14,medium,no
+PO-5168,HB-968,"Han River Bottling",17,1,595,2026-04-18,medium,no
+PO-5169,HB-100,"Han River Bottling",10,3,1012,2026-04-25,low,no
+PO-5170,HB-500,"Daegu Beverage Lab",10,0,873,2026-04-25,low,no
+PO-5171,KT-400,"Incheon Assembly",14,1,404,2026-04-29,medium,no
+PO-5172,SN-300,"Busan Fresh Co",18,2,683,2026-05-03,high,no
+PO-5173,HB-200,"West Pack Foods",22,3,786,2026-05-07,high,no
+PO-5174,SN-700,"Jeju Nutri Foods",7,0,537,2026-04-22,low,no
+PO-5175,CP-250,"Seoul Cold Chain",11,1,486,2026-04-26,low,no
+PO-5176,KT-900,"Incheon Assembly",15,2,369,2026-04-30,medium,no
+PO-5177,SN-863,"Incheon Assembly",19,3,494,2026-05-04,high,no
+PO-5178,KT-870,"Daegu Beverage Lab",19,0,608,2026-05-04,high,no
+PO-5179,AC-877,"Jeju Nutri Foods",8,1,722,2026-04-23,low,no
+PO-5180,HB-884,"Han River Bottling",12,2,836,2026-04-27,low,no
+PO-5181,SN-891,"West Pack Foods",16,3,950,2026-05-01,medium,no
+PO-5182,KT-898,"Busan Fresh Co",16,0,1064,2026-05-01,medium,no
+PO-5183,AC-905,"Incheon Assembly",20,1,1178,2026-05-05,high,no
+PO-5184,HB-912,"Daegu Beverage Lab",9,2,500,2026-04-24,low,no
+PO-5185,SN-919,"Jeju Nutri Foods",13,3,614,2026-04-28,medium,no
+PO-5186,KT-926,"Han River Bottling",13,0,728,2026-04-28,medium,no
+PO-5187,AC-933,"West Pack Foods",17,1,842,2026-05-02,medium,no
+PO-5188,HB-940,"Busan Fresh Co",21,2,956,2026-05-06,high,no
+PO-5189,SN-947,"Incheon Assembly",10,3,1070,2026-04-25,low,no
+PO-5190,KT-954,"Daegu Beverage Lab",10,0,1184,2026-04-25,low,no
+PO-5191,AC-961,"Jeju Nutri Foods",14,1,1298,2026-04-29,medium,no
+PO-5192,HB-968,"Han River Bottling",18,2,620,2026-05-03,high,no
+PO-5193,HB-100,"Han River Bottling",7,0,736,2026-05-06,low,no
+PO-5194,HB-500,"Daegu Beverage Lab",11,1,639,2026-05-10,low,no
+PO-5195,KT-400,"Incheon Assembly",21,8,302,2026-05-20,high,yes
+PO-5196,SN-300,"Busan Fresh Co",19,3,509,2026-05-18,high,no
+PO-5197,HB-200,"West Pack Foods",19,0,588,2026-05-18,high,no
+PO-5198,SN-700,"Jeju Nutri Foods",8,1,411,2026-05-07,low,no
+PO-5199,CP-250,"Seoul Cold Chain",12,2,378,2026-05-11,low,no
+PO-5200,KT-900,"Incheon Assembly",16,3,297,2026-05-15,medium,no
+PO-5201,SN-863,"Incheon Assembly",16,0,392,2026-05-15,medium,no
+PO-5202,KT-870,"Daegu Beverage Lab",20,1,479,2026-05-19,high,no
+PO-5203,AC-877,"Jeju Nutri Foods",9,2,566,2026-05-08,low,no
+PO-5204,HB-884,"Han River Bottling",13,3,653,2026-05-12,medium,no
+PO-5205,SN-891,"West Pack Foods",13,0,740,2026-05-12,medium,no
+PO-5206,KT-898,"Busan Fresh Co",17,1,827,2026-05-16,medium,no
+PO-5207,AC-905,"Incheon Assembly",21,2,914,2026-05-20,high,no
+PO-5208,HB-912,"Daegu Beverage Lab",10,3,425,2026-05-09,low,no
+PO-5209,SN-919,"Jeju Nutri Foods",10,0,512,2026-05-09,low,no
+PO-5210,KT-926,"Han River Bottling",14,1,599,2026-05-13,medium,no
+PO-5211,AC-933,"West Pack Foods",18,2,686,2026-05-17,high,no
+PO-5212,HB-940,"Busan Fresh Co",22,3,773,2026-05-21,high,no
+PO-5213,SN-947,"Incheon Assembly",7,0,860,2026-05-06,low,no
+PO-5214,KT-954,"Daegu Beverage Lab",11,1,947,2026-05-10,low,no
+PO-5215,AC-961,"Jeju Nutri Foods",15,2,1034,2026-05-14,medium,no
+PO-5216,HB-968,"Han River Bottling",19,3,545,2026-05-18,high,no
+PO-5217,HB-100,"Han River Bottling",12,5,828,2026-05-25,low,no
+PO-5218,HB-500,"Daegu Beverage Lab",15,5,717,2026-05-28,medium,no
+PO-5219,KT-400,"Incheon Assembly",16,3,336,2026-05-29,medium,no
+PO-5220,SN-300,"Busan Fresh Co",16,0,567,2026-05-29,medium,no
+PO-5221,HB-200,"West Pack Foods",20,1,654,2026-06-02,high,no
+PO-5222,SN-700,"Jeju Nutri Foods",9,2,453,2026-05-22,low,no
+PO-5223,CP-250,"Seoul Cold Chain",13,3,414,2026-05-26,medium,no
+PO-5224,KT-900,"Incheon Assembly",13,0,321,2026-05-26,medium,no
+PO-5225,SN-863,"Incheon Assembly",17,1,426,2026-05-30,medium,no
+PO-5226,KT-870,"Daegu Beverage Lab",21,2,522,2026-06-03,high,no
+PO-5227,AC-877,"Jeju Nutri Foods",10,3,618,2026-05-23,low,no
+PO-5228,HB-884,"Han River Bottling",10,0,714,2026-05-23,low,no
+PO-5229,SN-891,"West Pack Foods",14,1,810,2026-05-27,medium,no
+PO-5230,KT-898,"Busan Fresh Co",18,2,906,2026-05-31,high,no
+PO-5231,AC-905,"Incheon Assembly",22,3,1002,2026-06-04,high,no
+PO-5232,HB-912,"Daegu Beverage Lab",7,0,450,2026-05-20,low,no
+PO-5233,SN-919,"Jeju Nutri Foods",11,1,546,2026-05-24,low,no
+PO-5234,KT-926,"Han River Bottling",15,2,642,2026-05-28,medium,no
+PO-5235,AC-933,"West Pack Foods",19,3,738,2026-06-01,high,no
+PO-5236,HB-940,"Busan Fresh Co",19,0,834,2026-06-01,high,no
+PO-5237,SN-947,"Incheon Assembly",8,1,930,2026-05-21,low,no
+PO-5238,KT-954,"Daegu Beverage Lab",12,2,1026,2026-05-25,low,no
+PO-5239,AC-961,"Jeju Nutri Foods",16,3,1122,2026-05-29,medium,no
+PO-5240,HB-968,"Han River Bottling",16,0,570,2026-05-29,medium,no
+PO-5241,HB-100,"Han River Bottling",9,2,920,2026-06-05,low,no
+PO-5242,HB-500,"Daegu Beverage Lab",13,3,795,2026-06-09,medium,no
+PO-5243,KT-400,"Incheon Assembly",21,8,370,2026-06-17,high,yes
+PO-5244,SN-300,"Busan Fresh Co",17,1,625,2026-06-13,medium,no
+PO-5245,HB-200,"West Pack Foods",21,2,720,2026-06-17,high,no
+PO-5246,SN-700,"Jeju Nutri Foods",10,3,495,2026-06-06,low,no
+PO-5247,CP-250,"Seoul Cold Chain",10,0,450,2026-06-06,low,no
+PO-5248,KT-900,"Incheon Assembly",14,1,345,2026-06-10,medium,no
+PO-5249,SN-863,"Incheon Assembly",18,2,460,2026-06-14,high,no
+PO-5250,KT-870,"Daegu Beverage Lab",22,3,565,2026-06-18,high,no
+PO-5251,AC-877,"Jeju Nutri Foods",7,0,670,2026-06-03,low,no
+PO-5252,HB-884,"Han River Bottling",11,1,775,2026-06-07,low,no
+PO-5253,SN-891,"West Pack Foods",15,2,880,2026-06-11,medium,no
+PO-5254,KT-898,"Busan Fresh Co",19,3,985,2026-06-15,high,no
+PO-5255,AC-905,"Incheon Assembly",19,0,1090,2026-06-15,high,no
+PO-5256,HB-912,"Daegu Beverage Lab",8,1,475,2026-06-04,low,no
+PO-5257,SN-919,"Jeju Nutri Foods",12,2,580,2026-06-08,low,no
+PO-5258,KT-926,"Han River Bottling",16,3,685,2026-06-12,medium,no
+PO-5259,AC-933,"West Pack Foods",16,0,790,2026-06-12,medium,no
+PO-5260,HB-940,"Busan Fresh Co",20,1,895,2026-06-16,high,no
+PO-5261,SN-947,"Incheon Assembly",9,2,1000,2026-06-05,low,no
+PO-5262,KT-954,"Daegu Beverage Lab",13,3,1105,2026-06-09,medium,no
+PO-5263,AC-961,"Jeju Nutri Foods",13,0,1210,2026-06-09,medium,no
+PO-5264,HB-968,"Han River Bottling",17,1,595,2026-06-13,medium,no
+PO-5265,HB-100,"Han River Bottling",10,3,1012,2026-06-20,low,no
+PO-5266,HB-500,"Daegu Beverage Lab",10,0,873,2026-06-20,low,no
+PO-5267,KT-400,"Incheon Assembly",14,1,404,2026-06-24,medium,no
+PO-5268,SN-300,"Busan Fresh Co",18,2,683,2026-06-28,high,no
+PO-5269,HB-200,"West Pack Foods",22,3,786,2026-07-02,high,no
+PO-5270,SN-700,"Jeju Nutri Foods",7,0,537,2026-06-17,low,no
+PO-5271,CP-250,"Seoul Cold Chain",11,1,486,2026-06-21,low,no
+PO-5272,KT-900,"Incheon Assembly",15,2,369,2026-06-25,medium,no
+PO-5273,SN-863,"Incheon Assembly",19,3,494,2026-06-29,high,no
+PO-5274,KT-870,"Daegu Beverage Lab",19,0,608,2026-06-29,high,no
+PO-5275,AC-877,"Jeju Nutri Foods",8,1,722,2026-06-18,low,no
+PO-5276,HB-884,"Han River Bottling",12,2,836,2026-06-22,low,no
+PO-5277,SN-891,"West Pack Foods",16,3,950,2026-06-26,medium,no
+PO-5278,KT-898,"Busan Fresh Co",16,0,1064,2026-06-26,medium,no
+PO-5279,AC-905,"Incheon Assembly",20,1,1178,2026-06-30,high,no
+PO-5280,HB-912,"Daegu Beverage Lab",9,2,500,2026-06-19,low,no
+PO-5281,SN-919,"Jeju Nutri Foods",13,3,614,2026-06-23,medium,no
+PO-5282,KT-926,"Han River Bottling",13,0,728,2026-06-23,medium,no
+PO-5283,AC-933,"West Pack Foods",17,1,842,2026-06-27,medium,no
+PO-5284,HB-940,"Busan Fresh Co",21,2,956,2026-07-01,high,no
+PO-5285,SN-947,"Incheon Assembly",10,3,1070,2026-06-20,low,no
+PO-5286,KT-954,"Daegu Beverage Lab",10,0,1184,2026-06-20,low,no
+PO-5287,AC-961,"Jeju Nutri Foods",14,1,1298,2026-06-24,medium,no
+PO-5288,HB-968,"Han River Bottling",18,2,620,2026-06-28,high,no
+PO-5289,HB-100,"Han River Bottling",12,5,736,2026-07-06,low,no
+PO-5290,HB-500,"Daegu Beverage Lab",15,5,639,2026-07-09,medium,no
+PO-5291,KT-400,"Incheon Assembly",21,8,302,2026-07-15,high,yes
+PO-5292,SN-300,"Busan Fresh Co",19,3,509,2026-07-13,high,no
+PO-5293,HB-200,"West Pack Foods",19,0,588,2026-07-13,high,no
+PO-5294,SN-700,"Jeju Nutri Foods",8,1,411,2026-07-02,low,no
+PO-5295,CP-250,"Seoul Cold Chain",12,2,378,2026-07-06,low,no
+PO-5296,KT-900,"Incheon Assembly",16,3,297,2026-07-10,medium,no
+PO-5297,SN-863,"Incheon Assembly",16,0,392,2026-07-10,medium,no
+PO-5298,KT-870,"Daegu Beverage Lab",20,1,479,2026-07-14,high,no
+PO-5299,AC-877,"Jeju Nutri Foods",9,2,566,2026-07-03,low,no
+PO-5300,HB-884,"Han River Bottling",13,3,653,2026-07-07,medium,no
+PO-5301,SN-891,"West Pack Foods",13,0,740,2026-07-07,medium,no
+PO-5302,KT-898,"Busan Fresh Co",17,1,827,2026-07-11,medium,no
+PO-5303,AC-905,"Incheon Assembly",21,2,914,2026-07-15,high,no
+PO-5304,HB-912,"Daegu Beverage Lab",10,3,425,2026-07-04,low,no
+PO-5305,SN-919,"Jeju Nutri Foods",10,0,512,2026-07-04,low,no
+PO-5306,KT-926,"Han River Bottling",14,1,599,2026-07-08,medium,no
+PO-5307,AC-933,"West Pack Foods",18,2,686,2026-07-12,high,no
+PO-5308,HB-940,"Busan Fresh Co",22,3,773,2026-07-16,high,no
+PO-5309,SN-947,"Incheon Assembly",7,0,860,2026-07-01,low,no
+PO-5310,KT-954,"Daegu Beverage Lab",11,1,947,2026-07-05,low,no
+PO-5311,AC-961,"Jeju Nutri Foods",15,2,1034,2026-07-09,medium,no
+PO-5312,HB-968,"Han River Bottling",19,3,545,2026-07-13,high,no
+PO-5313,HB-100,"Han River Bottling",8,1,828,2026-07-16,low,no
+PO-5314,HB-500,"Daegu Beverage Lab",12,2,717,2026-07-20,low,no
+PO-5315,KT-400,"Incheon Assembly",16,3,336,2026-07-24,medium,no
+PO-5316,SN-300,"Busan Fresh Co",16,0,567,2026-07-24,medium,no
+PO-5317,HB-200,"West Pack Foods",20,1,654,2026-07-28,high,no
+PO-5318,SN-700,"Jeju Nutri Foods",9,2,453,2026-07-17,low,no
+PO-5319,CP-250,"Seoul Cold Chain",13,3,414,2026-07-21,medium,no
+PO-5320,KT-900,"Incheon Assembly",13,0,321,2026-07-21,medium,no
+PO-5321,SN-863,"Incheon Assembly",17,1,426,2026-07-25,medium,no
+PO-5322,KT-870,"Daegu Beverage Lab",21,2,522,2026-07-29,high,no
+PO-5323,AC-877,"Jeju Nutri Foods",10,3,618,2026-07-18,low,no
+PO-5324,HB-884,"Han River Bottling",10,0,714,2026-07-18,low,no
+PO-5325,SN-891,"West Pack Foods",14,1,810,2026-07-22,medium,no
+PO-5326,KT-898,"Busan Fresh Co",18,2,906,2026-07-26,high,no
+PO-5327,AC-905,"Incheon Assembly",22,3,1002,2026-07-30,high,no
+PO-5328,HB-912,"Daegu Beverage Lab",7,0,450,2026-07-15,low,no
+PO-5329,SN-919,"Jeju Nutri Foods",11,1,546,2026-07-19,low,no
+PO-5330,KT-926,"Han River Bottling",15,2,642,2026-07-23,medium,no
+PO-5331,AC-933,"West Pack Foods",19,3,738,2026-07-27,high,no
+PO-5332,HB-940,"Busan Fresh Co",19,0,834,2026-07-27,high,no
+PO-5333,SN-947,"Incheon Assembly",8,1,930,2026-07-16,low,no
+PO-5334,KT-954,"Daegu Beverage Lab",12,2,1026,2026-07-20,low,no
+PO-5335,AC-961,"Jeju Nutri Foods",16,3,1122,2026-07-24,medium,no
+PO-5336,HB-968,"Han River Bottling",16,0,570,2026-07-24,medium,no
+PO-5337,HB-100,"Han River Bottling",9,2,920,2026-07-31,low,no
+PO-5338,HB-500,"Daegu Beverage Lab",13,3,795,2026-08-04,medium,no
+PO-5339,KT-400,"Incheon Assembly",21,8,370,2026-08-12,high,yes
+PO-5340,SN-300,"Busan Fresh Co",17,1,625,2026-08-08,medium,no
+PO-5341,HB-200,"West Pack Foods",21,2,720,2026-08-12,high,no
+PO-5342,SN-700,"Jeju Nutri Foods",10,3,495,2026-08-01,low,no
+PO-5343,CP-250,"Seoul Cold Chain",10,0,450,2026-08-01,low,no
+PO-5344,KT-900,"Incheon Assembly",14,1,345,2026-08-05,medium,no
+PO-5345,SN-863,"Incheon Assembly",18,2,460,2026-08-09,high,no
+PO-5346,KT-870,"Daegu Beverage Lab",22,3,565,2026-08-13,high,no
+PO-5347,AC-877,"Jeju Nutri Foods",7,0,670,2026-07-29,low,no
+PO-5348,HB-884,"Han River Bottling",11,1,775,2026-08-02,low,no
+PO-5349,SN-891,"West Pack Foods",15,2,880,2026-08-06,medium,no
+PO-5350,KT-898,"Busan Fresh Co",19,3,985,2026-08-10,high,no
+PO-5351,AC-905,"Incheon Assembly",19,0,1090,2026-08-10,high,no
+PO-5352,HB-912,"Daegu Beverage Lab",8,1,475,2026-07-30,low,no
+PO-5353,SN-919,"Jeju Nutri Foods",12,2,580,2026-08-03,low,no
+PO-5354,KT-926,"Han River Bottling",16,3,685,2026-08-07,medium,no
+PO-5355,AC-933,"West Pack Foods",16,0,790,2026-08-07,medium,no
+PO-5356,HB-940,"Busan Fresh Co",20,1,895,2026-08-11,high,no
+PO-5357,SN-947,"Incheon Assembly",9,2,1000,2026-07-31,low,no
+PO-5358,KT-954,"Daegu Beverage Lab",13,3,1105,2026-08-04,medium,no
+PO-5359,AC-961,"Jeju Nutri Foods",13,0,1210,2026-08-04,medium,no
+PO-5360,HB-968,"Han River Bottling",17,1,595,2026-08-08,medium,no
+PO-5361,HB-100,"Han River Bottling",12,5,1012,2026-08-17,low,no
+PO-5362,HB-500,"Daegu Beverage Lab",15,5,873,2026-08-20,medium,no
+PO-5363,KT-400,"Incheon Assembly",14,1,404,2026-08-19,medium,no
+PO-5364,SN-300,"Busan Fresh Co",18,2,683,2026-08-23,high,no
+PO-5365,HB-200,"West Pack Foods",22,3,786,2026-08-27,high,no
+PO-5366,SN-700,"Jeju Nutri Foods",7,0,537,2026-08-12,low,no
+PO-5367,CP-250,"Seoul Cold Chain",11,1,486,2026-08-16,low,no
+PO-5368,KT-900,"Incheon Assembly",15,2,369,2026-08-20,medium,no
+PO-5369,SN-863,"Incheon Assembly",19,3,494,2026-08-24,high,no
+PO-5370,KT-870,"Daegu Beverage Lab",19,0,608,2026-08-24,high,no
+PO-5371,AC-877,"Jeju Nutri Foods",8,1,722,2026-08-13,low,no
+PO-5372,HB-884,"Han River Bottling",12,2,836,2026-08-17,low,no
+PO-5373,SN-891,"West Pack Foods",16,3,950,2026-08-21,medium,no
+PO-5374,KT-898,"Busan Fresh Co",16,0,1064,2026-08-21,medium,no
+PO-5375,AC-905,"Incheon Assembly",20,1,1178,2026-08-25,high,no
+PO-5376,HB-912,"Daegu Beverage Lab",9,2,500,2026-08-14,low,no
+PO-5377,SN-919,"Jeju Nutri Foods",13,3,614,2026-08-18,medium,no
+PO-5378,KT-926,"Han River Bottling",13,0,728,2026-08-18,medium,no
+PO-5379,AC-933,"West Pack Foods",17,1,842,2026-08-22,medium,no
+PO-5380,HB-940,"Busan Fresh Co",21,2,956,2026-08-26,high,no
+PO-5381,SN-947,"Incheon Assembly",10,3,1070,2026-08-15,low,no
+PO-5382,KT-954,"Daegu Beverage Lab",10,0,1184,2026-08-15,low,no
+PO-5383,AC-961,"Jeju Nutri Foods",14,1,1298,2026-08-19,medium,no
+PO-5384,HB-968,"Han River Bottling",18,2,620,2026-08-23,high,no
+PO-5385,HB-100,"Han River Bottling",7,0,736,2026-08-26,low,no
+PO-5386,HB-500,"Daegu Beverage Lab",11,1,639,2026-08-30,low,no
+PO-5387,KT-400,"Incheon Assembly",21,8,302,2026-09-09,high,yes
+PO-5388,SN-300,"Busan Fresh Co",19,3,509,2026-09-07,high,no
+PO-5389,HB-200,"West Pack Foods",19,0,588,2026-09-07,high,no
+PO-5390,SN-700,"Jeju Nutri Foods",8,1,411,2026-08-27,low,no
+PO-5391,CP-250,"Seoul Cold Chain",12,2,378,2026-08-31,low,no
+PO-5392,KT-900,"Incheon Assembly",16,3,297,2026-09-04,medium,no
+PO-5393,SN-863,"Incheon Assembly",16,0,392,2026-09-04,medium,no
+PO-5394,KT-870,"Daegu Beverage Lab",20,1,479,2026-09-08,high,no
+PO-5395,AC-877,"Jeju Nutri Foods",9,2,566,2026-08-28,low,no
+PO-5396,HB-884,"Han River Bottling",13,3,653,2026-09-01,medium,no
+PO-5397,SN-891,"West Pack Foods",13,0,740,2026-09-01,medium,no
+PO-5398,KT-898,"Busan Fresh Co",17,1,827,2026-09-05,medium,no
+PO-5399,AC-905,"Incheon Assembly",21,2,914,2026-09-09,high,no
+PO-5400,HB-912,"Daegu Beverage Lab",10,3,425,2026-08-29,low,no
+PO-5401,SN-919,"Jeju Nutri Foods",10,0,512,2026-08-29,low,no
+PO-5402,KT-926,"Han River Bottling",14,1,599,2026-09-02,medium,no
+PO-5403,AC-933,"West Pack Foods",18,2,686,2026-09-06,high,no
+PO-5404,HB-940,"Busan Fresh Co",22,3,773,2026-09-10,high,no
+PO-5405,SN-947,"Incheon Assembly",7,0,860,2026-08-26,low,no
+PO-5406,KT-954,"Daegu Beverage Lab",11,1,947,2026-08-30,low,no
+PO-5407,AC-961,"Jeju Nutri Foods",15,2,1034,2026-09-03,medium,no
+PO-5408,HB-968,"Han River Bottling",19,3,545,2026-09-07,high,no
+PO-5409,HB-100,"Han River Bottling",8,1,828,2026-09-10,low,no
+PO-5410,HB-500,"Daegu Beverage Lab",12,2,717,2026-09-14,low,no
+PO-5411,KT-400,"Incheon Assembly",16,3,336,2026-09-18,medium,no
+PO-5412,SN-300,"Busan Fresh Co",16,0,567,2026-09-18,medium,no
+PO-5413,HB-200,"West Pack Foods",20,1,654,2026-09-22,high,no
+PO-5414,SN-700,"Jeju Nutri Foods",9,2,453,2026-09-11,low,no
+PO-5415,CP-250,"Seoul Cold Chain",13,3,414,2026-09-15,medium,no
+PO-5416,KT-900,"Incheon Assembly",13,0,321,2026-09-15,medium,no
+PO-5417,SN-863,"Incheon Assembly",17,1,426,2026-09-19,medium,no
+PO-5418,KT-870,"Daegu Beverage Lab",21,2,522,2026-09-23,high,no
+PO-5419,AC-877,"Jeju Nutri Foods",10,3,618,2026-09-12,low,no
+PO-5420,HB-884,"Han River Bottling",10,0,714,2026-09-12,low,no
+PO-5421,SN-891,"West Pack Foods",14,1,810,2026-09-16,medium,no
+PO-5422,KT-898,"Busan Fresh Co",18,2,906,2026-09-20,high,no
+PO-5423,AC-905,"Incheon Assembly",22,3,1002,2026-09-24,high,no
+PO-5424,HB-912,"Daegu Beverage Lab",7,0,450,2026-09-09,low,no
+PO-5425,SN-919,"Jeju Nutri Foods",11,1,546,2026-09-13,low,no
+PO-5426,KT-926,"Han River Bottling",15,2,642,2026-09-17,medium,no
+PO-5427,AC-933,"West Pack Foods",19,3,738,2026-09-21,high,no
+PO-5428,HB-940,"Busan Fresh Co",19,0,834,2026-09-21,high,no
+PO-5429,SN-947,"Incheon Assembly",8,1,930,2026-09-10,low,no
+PO-5430,KT-954,"Daegu Beverage Lab",12,2,1026,2026-09-14,low,no
+PO-5431,AC-961,"Jeju Nutri Foods",16,3,1122,2026-09-18,medium,no
+PO-5432,HB-968,"Han River Bottling",16,0,570,2026-09-18,medium,no
+PO-5433,HB-100,"Han River Bottling",12,5,920,2026-09-28,low,no
+PO-5434,HB-500,"Daegu Beverage Lab",15,5,795,2026-10-01,medium,no
+PO-5435,KT-400,"Incheon Assembly",21,8,370,2026-10-07,high,yes
+PO-5436,SN-300,"Busan Fresh Co",17,1,625,2026-10-03,medium,no
+PO-5437,HB-200,"West Pack Foods",21,2,720,2026-10-07,high,no
+PO-5438,SN-700,"Jeju Nutri Foods",10,3,495,2026-09-26,low,no
+PO-5439,CP-250,"Seoul Cold Chain",10,0,450,2026-09-26,low,no
+PO-5440,KT-900,"Incheon Assembly",14,1,345,2026-09-30,medium,no
+PO-5441,SN-863,"Incheon Assembly",18,2,460,2026-10-04,high,no
+PO-5442,KT-870,"Daegu Beverage Lab",22,3,565,2026-10-08,high,no
+PO-5443,AC-877,"Jeju Nutri Foods",7,0,670,2026-09-23,low,no
+PO-5444,HB-884,"Han River Bottling",11,1,775,2026-09-27,low,no
+PO-5445,SN-891,"West Pack Foods",15,2,880,2026-10-01,medium,no
+PO-5446,KT-898,"Busan Fresh Co",19,3,985,2026-10-05,high,no
+PO-5447,AC-905,"Incheon Assembly",19,0,1090,2026-10-05,high,no
+PO-5448,HB-912,"Daegu Beverage Lab",8,1,475,2026-09-24,low,no
+PO-5449,SN-919,"Jeju Nutri Foods",12,2,580,2026-09-28,low,no
+PO-5450,KT-926,"Han River Bottling",16,3,685,2026-10-02,medium,no
+PO-5451,AC-933,"West Pack Foods",16,0,790,2026-10-02,medium,no
+PO-5452,HB-940,"Busan Fresh Co",20,1,895,2026-10-06,high,no
+PO-5453,SN-947,"Incheon Assembly",9,2,1000,2026-09-25,low,no
+PO-5454,KT-954,"Daegu Beverage Lab",13,3,1105,2026-09-29,medium,no
+PO-5455,AC-961,"Jeju Nutri Foods",13,0,1210,2026-09-29,medium,no
+PO-5456,HB-968,"Han River Bottling",17,1,595,2026-10-03,medium,no
+PO-5457,HB-100,"Han River Bottling",10,3,1012,2026-10-10,low,no
+PO-5458,HB-500,"Daegu Beverage Lab",10,0,873,2026-10-10,low,no
+PO-5459,KT-400,"Incheon Assembly",14,1,404,2026-10-14,medium,no
+PO-5460,SN-300,"Busan Fresh Co",18,2,683,2026-10-18,high,no
+PO-5461,HB-200,"West Pack Foods",22,3,786,2026-10-22,high,no
+PO-5462,SN-700,"Jeju Nutri Foods",7,0,537,2026-10-07,low,no
+PO-5463,CP-250,"Seoul Cold Chain",11,1,486,2026-10-11,low,no
+PO-5464,KT-900,"Incheon Assembly",15,2,369,2026-10-15,medium,no
+PO-5465,SN-863,"Incheon Assembly",19,3,494,2026-10-19,high,no
+PO-5466,KT-870,"Daegu Beverage Lab",19,0,608,2026-10-19,high,no
+PO-5467,AC-877,"Jeju Nutri Foods",8,1,722,2026-10-08,low,no
+PO-5468,HB-884,"Han River Bottling",12,2,836,2026-10-12,low,no
+PO-5469,SN-891,"West Pack Foods",16,3,950,2026-10-16,medium,no
+PO-5470,KT-898,"Busan Fresh Co",16,0,1064,2026-10-16,medium,no
+PO-5471,AC-905,"Incheon Assembly",20,1,1178,2026-10-20,high,no
+PO-5472,HB-912,"Daegu Beverage Lab",9,2,500,2026-10-09,low,no
+PO-5473,SN-919,"Jeju Nutri Foods",13,3,614,2026-10-13,medium,no
+PO-5474,KT-926,"Han River Bottling",13,0,728,2026-10-13,medium,no
+PO-5475,AC-933,"West Pack Foods",17,1,842,2026-10-17,medium,no
+PO-5476,HB-940,"Busan Fresh Co",21,2,956,2026-10-21,high,no
+PO-5477,SN-947,"Incheon Assembly",10,3,1070,2026-10-10,low,no
+PO-5478,KT-954,"Daegu Beverage Lab",10,0,1184,2026-10-10,low,no
+PO-5479,AC-961,"Jeju Nutri Foods",14,1,1298,2026-10-14,medium,no
+PO-5480,HB-968,"Han River Bottling",18,2,620,2026-10-18,high,no
+PO-5481,HB-100,"Han River Bottling",7,0,736,2026-10-21,low,no
+PO-5482,HB-500,"Daegu Beverage Lab",11,1,639,2026-10-25,low,no
+PO-5483,KT-400,"Incheon Assembly",21,8,302,2026-11-04,high,yes
+PO-5484,SN-300,"Busan Fresh Co",19,3,509,2026-11-02,high,no
+PO-5485,HB-200,"West Pack Foods",19,0,588,2026-11-02,high,no
+PO-5486,SN-700,"Jeju Nutri Foods",8,1,411,2026-10-22,low,no
+PO-5487,CP-250,"Seoul Cold Chain",12,2,378,2026-10-26,low,no
+PO-5488,KT-900,"Incheon Assembly",16,3,297,2026-10-30,medium,no
+PO-5489,SN-863,"Incheon Assembly",16,0,392,2026-10-30,medium,no
+PO-5490,KT-870,"Daegu Beverage Lab",20,1,479,2026-11-03,high,no
+PO-5491,AC-877,"Jeju Nutri Foods",9,2,566,2026-10-23,low,no
+PO-5492,HB-884,"Han River Bottling",13,3,653,2026-10-27,medium,no
+PO-5493,SN-891,"West Pack Foods",13,0,740,2026-10-27,medium,no
+PO-5494,KT-898,"Busan Fresh Co",17,1,827,2026-10-31,medium,no
+PO-5495,AC-905,"Incheon Assembly",21,2,914,2026-11-04,high,no
+PO-5496,HB-912,"Daegu Beverage Lab",10,3,425,2026-10-24,low,no
+PO-5497,SN-919,"Jeju Nutri Foods",10,0,512,2026-10-24,low,no
+PO-5498,KT-926,"Han River Bottling",14,1,599,2026-10-28,medium,no
+PO-5499,AC-933,"West Pack Foods",18,2,686,2026-11-01,high,no
+PO-5500,HB-940,"Busan Fresh Co",22,3,773,2026-11-05,high,no
+PO-5501,SN-947,"Incheon Assembly",7,0,860,2026-10-21,low,no
+PO-5502,KT-954,"Daegu Beverage Lab",11,1,947,2026-10-25,low,no
+PO-5503,AC-961,"Jeju Nutri Foods",15,2,1034,2026-10-29,medium,no
+PO-5504,HB-968,"Han River Bottling",19,3,545,2026-11-02,high,no
+PO-5505,HB-100,"Han River Bottling",12,5,828,2026-11-09,low,no
+PO-5506,HB-500,"Daegu Beverage Lab",15,5,717,2026-11-12,medium,no
+PO-5507,KT-400,"Incheon Assembly",16,3,336,2026-11-13,medium,no
+PO-5508,SN-300,"Busan Fresh Co",16,0,567,2026-11-13,medium,no
+PO-5509,HB-200,"West Pack Foods",20,1,654,2026-11-17,high,no
+PO-5510,SN-700,"Jeju Nutri Foods",9,2,453,2026-11-06,low,no
+PO-5511,CP-250,"Seoul Cold Chain",13,3,414,2026-11-10,medium,no
+PO-5512,KT-900,"Incheon Assembly",13,0,321,2026-11-10,medium,no
+PO-5513,SN-863,"Incheon Assembly",17,1,426,2026-11-14,medium,no
+PO-5514,KT-870,"Daegu Beverage Lab",21,2,522,2026-11-18,high,no
+PO-5515,AC-877,"Jeju Nutri Foods",10,3,618,2026-11-07,low,no
+PO-5516,HB-884,"Han River Bottling",10,0,714,2026-11-07,low,no
+PO-5517,SN-891,"West Pack Foods",14,1,810,2026-11-11,medium,no
+PO-5518,KT-898,"Busan Fresh Co",18,2,906,2026-11-15,high,no
+PO-5519,AC-905,"Incheon Assembly",22,3,1002,2026-11-19,high,no
+PO-5520,HB-912,"Daegu Beverage Lab",7,0,450,2026-11-04,low,no
+PO-5521,SN-919,"Jeju Nutri Foods",11,1,546,2026-11-08,low,no
+PO-5522,KT-926,"Han River Bottling",15,2,642,2026-11-12,medium,no
+PO-5523,AC-933,"West Pack Foods",19,3,738,2026-11-16,high,no
+PO-5524,HB-940,"Busan Fresh Co",19,0,834,2026-11-16,high,no
+PO-5525,SN-947,"Incheon Assembly",8,1,930,2026-11-05,low,no
+PO-5526,KT-954,"Daegu Beverage Lab",12,2,1026,2026-11-09,low,no
+PO-5527,AC-961,"Jeju Nutri Foods",16,3,1122,2026-11-13,medium,no
+PO-5528,HB-968,"Han River Bottling",16,0,570,2026-11-13,medium,no

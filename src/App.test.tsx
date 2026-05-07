@@ -1,8 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { API_UNAVAILABLE_MESSAGE } from "./api";
-import type { AgentRun, AgentRunQuestion, AgentRunStep, Artifact, Citation, CurrentUser, FileRecord, Message, Session, Settings } from "./types";
+import { api, API_UNAVAILABLE_MESSAGE } from "./api";
+import type { AgentRun, AgentRunAction, AgentRunQuestion, Artifact, Citation, CurrentUser, FileRecord, Message, Session, Settings } from "./types";
 
 const settings: Settings = {
   openrouter_key_configured: true,
@@ -108,22 +108,26 @@ function artifact(id: string, kind: Artifact["kind"], spec: Artifact["spec"]): A
   };
 }
 
-function step(id: string, run_id: string, phase: AgentRunStep["phase"], status: AgentRunStep["status"], ordinal: number): AgentRunStep {
+function action(id: string, run_id: string, kind: AgentRunAction["kind"], status: AgentRunAction["status"], ordinal: number, output_summary?: string, output_json: Record<string, unknown> = {}): AgentRunAction {
   return {
     id,
     run_id,
-    phase,
     ordinal,
+    kind,
+    label: kind.replace(/_/g, " "),
     status,
-    summary: `${phase} ${status}`,
-    detail: {},
+    input_summary: status === "running" ? `${kind} ${status}` : "",
+    output_summary: output_summary ?? `${kind} ${status}`,
+    input_json: {},
+    output_json,
+    validation_json: {},
     created_at: "",
     updated_at: ""
   };
 }
 
 function run(id: string, status: AgentRun["status"], question = "Summarize", assistant_message_id: string | null = null): AgentRun {
-  const phases: AgentRunStep["phase"][] = ["plan", "search", "analysis", "writing", "review", "implement"];
+  const kinds: AgentRunAction["kind"][] = ["verify_provider", "classify_request", "plan_task", "load_sources", "write", "validate", "persist_response"];
   return {
     id,
     session_id: "ses_new",
@@ -134,7 +138,6 @@ function run(id: string, status: AgentRun["status"], question = "Summarize", ass
     question,
     execution_plan: {},
     task_contract: {},
-    prompt_context: {},
     provider_status: {},
     agent_actions: [],
     review_scores: {},
@@ -144,7 +147,10 @@ function run(id: string, status: AgentRun["status"], question = "Summarize", ass
     artifact_versions: [],
     repair_attempts: [],
     quality_warnings: [],
-    steps: phases.map((phase, index) => step(`step_${phase}`, id, phase, status === "completed" ? "completed" : index === 1 ? "running" : index === 0 ? "completed" : "pending", index + 1)),
+    follow_up_questions: [],
+    parent_run_id: null,
+    trigger_question_id: null,
+    actions: kinds.map((kind, index) => action(`act_${kind}`, id, kind, status === "completed" ? "completed" : index === 3 ? "running" : index < 3 ? "completed" : "running", index + 1)),
     created_at: "",
     updated_at: ""
   };
@@ -155,7 +161,7 @@ function planningQuestion(run_id: string, kind: AgentRunQuestion["kind"] = "inte
   return {
     id: "ques_1",
     run_id,
-    phase: "plan",
+    action_kind: "ask_user",
     kind,
     question: isInterviewOffer
       ? "Do you want a short interview for a better result, or should FileChat handle it automatically?"
@@ -170,7 +176,22 @@ function planningQuestion(run_id: string, kind: AgentRunQuestion["kind"] = "inte
           { id: "team_workshop", label: "팀 워크숍용", description: "토론 질문과 병목 유형을 우선합니다." }
         ],
     default_option: isInterviewOffer ? "automatic" : "leadership_report",
+    blocking: true,
+    phase: "ask_user",
+    card: {
+      title: "Planning needs a choice",
+      prompt: isInterviewOffer ? "Interview or automatic?" : "One more planning question",
+      group: "business",
+      options: [],
+      allow_free_text: kind === "clarification",
+      allow_file_reference: false,
+      allow_multi_select: false,
+      submit_label: "Start follow-up"
+    },
+    parent_message_id: null,
+    parent_artifact_id: null,
     status: "pending",
+    answer_file_ids: [],
     created_at: "",
     updated_at: ""
   };
@@ -192,6 +213,7 @@ describe("App", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    api.clearTestMode();
   });
 
   it("creates a fresh blank session on initial load instead of reopening old sessions", async () => {
@@ -226,6 +248,33 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText(API_UNAVAILABLE_MESSAGE)).toBeInTheDocument();
+  });
+
+  it("renders local mode controls from stored test mode when /api/me fails", async () => {
+    api.setTestMode("enterprise", "member");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json({ detail: "Internal server error" }, { status: 500 });
+      if (url.endsWith("/api/settings")) return Response.json({ ...settings, edition: "enterprise", settings_scope: "organization" });
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const mode = await screen.findByLabelText("Test mode");
+    expect(mode).toHaveValue("enterprise:member");
+    expect(screen.getByRole("option", { name: "Community" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enterprise owner" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enterprise admin" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enterprise member" })).toBeInTheDocument();
+    expect(await screen.findByText(/FileChat API returned 500 for \/me/)).toBeInTheDocument();
   });
 
   it("shows file context chips and detaches a file from the active session", async () => {
@@ -569,6 +618,89 @@ describe("App", () => {
     expect(screen.getByText(/FILECHAT_TRUSTED_AUTH_HEADERS=true/)).toBeInTheDocument();
   });
 
+  it("toggles local test mode between community and enterprise roles", async () => {
+    const switcherUser: CurrentUser = {
+      ...currentUser,
+      auth_test_mode: true,
+      auth_mode: "local_mode_switcher",
+      capabilities: {
+        ...currentUser.capabilities,
+        switch_test_mode: true
+      }
+    };
+    const enterpriseAdmin: CurrentUser = {
+      ...switcherUser,
+      role: "admin",
+      edition: "enterprise",
+      enterprise_enabled: true,
+      capabilities: {
+        ...switcherUser.capabilities,
+        use_admin_console: true
+      }
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      if (url.endsWith("/api/me")) {
+        return Response.json(headers.get("X-FileChat-Test-Edition") === "enterprise" ? enterpriseAdmin : switcherUser);
+      }
+      if (url.endsWith("/api/settings")) {
+        return Response.json(headers.get("X-FileChat-Test-Edition") === "enterprise" ? { ...settings, edition: "enterprise", settings_scope: "organization" } : settings);
+      }
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const mode = await screen.findByLabelText("Test mode");
+    fireEvent.change(mode, { target: { value: "enterprise:admin" } });
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url, init]) => (
+        String(url).endsWith("/api/me")
+        && new Headers((init as RequestInit | undefined)?.headers).get("X-FileChat-Test-Edition") === "enterprise"
+      ))).toBe(true);
+    });
+    expect(await screen.findByText("Enterprise")).toBeInTheDocument();
+  });
+
+  it("renders all local mode choices when /api/me allows switching", async () => {
+    const switcherUser: CurrentUser = {
+      ...currentUser,
+      auth_test_mode: true,
+      auth_mode: "local_mode_switcher",
+      capabilities: {
+        ...currentUser.capabilities,
+        switch_test_mode: true
+      }
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(switcherUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole("option", { name: "Community" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enterprise owner" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enterprise admin" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Enterprise member" })).toBeInTheDocument();
+  });
+
   it("puts enterprise provider key management in the admin console", async () => {
     const enterpriseSettings: Settings = {
       ...settings,
@@ -802,7 +934,7 @@ describe("App", () => {
     const optionsArtifact = artifact("art_options", "decision_cards", {
       root: "card",
       elements: {
-        card: { type: "ArtifactCard", props: { title: "Available Charts And Docs" }, children: ["timeline", "action", "source"] },
+        card: { type: "ArtifactCard", props: { title: "Available Charts And Docs" }, children: ["timeline", "source"] },
         timeline: {
           type: "Timeline",
           props: {
@@ -813,7 +945,6 @@ describe("App", () => {
           },
           children: []
         },
-        action: { type: "ActionButton", props: { label: "Copy request", action: "copy", value: "Create roadmap" }, children: [] },
         source: { type: "SourceButton", props: { label: "Open source", chunkId: "chk_1" }, children: [] }
       }
     });
@@ -833,9 +964,10 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Available Charts And Docs")).toBeInTheDocument();
+    expect((await screen.findAllByText("Available Charts And Docs")).length).toBeGreaterThan(0);
     expect(screen.getByText("Proposal review")).toBeInTheDocument();
     expect(screen.getByText("4월")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy request/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Open source" })[0]);
     expect(await screen.findByText("Source excerpt")).toBeInTheDocument();
   });
@@ -894,6 +1026,275 @@ describe("App", () => {
     expect(screen.getByText("10")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open source for Yes" }));
     expect(await screen.findByText("Source excerpt")).toBeInTheDocument();
+  });
+
+  it("renders line and pie chart artifacts with distinct native SVGs", async () => {
+    const lineArtifact = {
+      ...artifact("art_line", "chart", {
+      chart_type: "line",
+      values: [
+        { label: "2026-01", value: 100, source_id: 1 },
+        { label: "2026-02", value: 125, source_id: 1 },
+        { label: "2026-03", value: 160, source_id: 1 }
+      ],
+      x_label: "Month",
+      y_label: "Revenue"
+      }),
+      title: "Line chart"
+    };
+    const pieArtifact = {
+      ...artifact("art_pie", "chart", {
+        chart_type: "pie",
+        values: [
+          { label: "North", value: 60, source_id: 1 },
+          { label: "South", value: 40, source_id: 1 }
+        ],
+        x_label: "Region",
+        y_label: "Share"
+      }),
+      title: "Pie chart"
+    };
+    const answer = { ...message("msg_answer", "ses_new", "assistant", "Here are charts."), citations: [citation("cit_1")], artifacts: [lineArtifact, pieArtifact] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Here are charts.")).toBeInTheDocument();
+    expect(document.querySelector("svg.chart-line-svg")).toBeTruthy();
+    expect(document.querySelector("svg.chart-pie-svg")).toBeTruthy();
+    expect(document.querySelector(".chart-bar-row")).toBeFalsy();
+    expect(screen.getByText("North")).toBeInTheDocument();
+  });
+
+  it("renders an insight narrative panel under chart artifacts", async () => {
+    const chartArtifact = {
+      ...artifact("art_chart", "chart", {
+        chart_type: "line",
+        values: [
+          { label: "2026-05", value: 100, source_id: 1 },
+          { label: "2026-06", value: 125, source_id: 1 }
+        ],
+        x_label: "forecast_month",
+        y_label: "forecast_units",
+        insight_narrative: {
+          headline: "Forecast units are rising",
+          meaning: "The x-axis is forecast_month and the measure is aggregated forecast_units.",
+          evidence: ["forecast_month orders the trend.", "SKU is an identifier/dimension, not a measure."],
+          so_what: "Treat this as a demand planning signal.",
+          recommended_actions: ["Inspect region/SKU mix and validate stockout/allocation assumptions before action."],
+          follow_up_questions: [
+            {
+              id: "q_mix",
+              group: "data",
+              question: "Which region/SKU combinations explain the change?",
+              options: [{ id: "inspect", label: "Inspect mix" }],
+              default_option: "inspect",
+              requires_reference: true
+            }
+          ],
+          caveats: ["Aggregated duplicate periods across regions and SKUs."],
+          confidence: "high",
+          source_columns: ["forecast_month", "forecast_units"]
+        }
+      }),
+      title: "Forecast trend"
+    };
+    const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the best chart."), citations: [citation("cit_1")], artifacts: [chartArtifact] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "regional_demand_forecast.csv")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Forecast units are rising")).toBeInTheDocument();
+    expect(screen.getByText("Meaning")).toBeInTheDocument();
+    expect(screen.getByText("Treat this as a demand planning signal.")).toBeInTheDocument();
+    expect(screen.getByText("SKU is an identifier/dimension, not a measure.")).toBeInTheDocument();
+    expect(screen.getByText("Inspect region/SKU mix and validate stockout/allocation assumptions before action.")).toBeInTheDocument();
+    expect(screen.getByText("Which region/SKU combinations explain the change?")).toBeInTheDocument();
+    expect(screen.getByText(/Confidence: high/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Notion" })).toHaveAttribute("href", "/api/sessions/ses_new/artifacts/art_chart/export?format=notion");
+    expect(screen.getByRole("link", { name: "CSV" })).toHaveAttribute("href", "/api/sessions/ses_new/artifacts/art_chart/export?format=csv");
+  });
+
+  it("answers follow-up cards with selected options, notes, and ready reference files without disabling the composer", async () => {
+    const answer = { ...message("msg_answer", "ses_new", "assistant", "Here is the best chart."), artifacts: [artifact("art_chart", "chart", { values: [{ label: "May", value: 100 }] })] };
+    const followUp: AgentRunQuestion = {
+      ...planningQuestion("run_parent", "choice"),
+      id: "ques_follow",
+      blocking: false,
+      phase: "follow_up",
+      question: "Which region/SKU combinations explain the change?",
+      options: [
+        { id: "inspect_mix", label: "Inspect mix", description: "" },
+        { id: "compare_segments", label: "Compare segments", description: "" }
+      ],
+      default_option: "inspect_mix",
+      card: {
+        title: "Question to answer next",
+        prompt: "Which region/SKU combinations explain the change?",
+        group: "data",
+        options: [],
+        allow_free_text: true,
+        allow_file_reference: true,
+        allow_multi_select: false,
+        submit_label: "Start follow-up"
+      },
+      parent_message_id: "msg_answer",
+      parent_artifact_id: "art_chart"
+    };
+    const parentRun = { ...run("run_parent", "completed", "best chart for this file", "msg_answer"), follow_up_questions: [followUp] };
+    const childRun = { ...run("run_child", "queued", "Follow up on the completed chart insight."), parent_run_id: "run_parent", trigger_question_id: "ques_follow" };
+    let runsPayload: AgentRun[] = [parentRun];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_forecast", "regional_demand_forecast.csv")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs/run_parent/questions/ques_follow/answer") && init?.method === "POST") {
+        runsPayload = [{ ...parentRun, follow_up_questions: [] }, childRun];
+        return Response.json(childRun);
+      }
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json(runsPayload);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const followUpCards = await screen.findByLabelText("Follow-up questions");
+    expect(followUpCards).toBeInTheDocument();
+    expect(screen.getByLabelText("Ask a question about the selected files")).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Compare segments" }));
+    fireEvent.change(screen.getByLabelText("Follow-up note"), { target: { value: "Focus on West region." } });
+    fireEvent.click(within(followUpCards).getByLabelText(/regional_demand_forecast\.csv/));
+    fireEvent.click(screen.getByRole("button", { name: /Start follow-up/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/sessions/ses_new/runs/run_parent/questions/ques_follow/answer",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            selected_option: "compare_segments",
+            free_text: "Focus on West region.",
+            attached_file_ids: ["fil_forecast"]
+          })
+        })
+      );
+    });
+  });
+
+  it("answers Available Charts And Docs with multi-select option ids", async () => {
+    const answer = {
+      ...message("msg_answer", "ses_new", "assistant", "I mapped the options."),
+      artifacts: [artifact("art_options", "decision_cards", {
+        root: "card",
+        elements: {
+          card: { type: "ArtifactCard", props: { title: "Available Charts And Docs" }, children: ["option_1", "option_2"] },
+          option_1: { type: "TextBlock", props: { text: "Revenue line chart" }, children: [] },
+          option_2: { type: "TextBlock", props: { text: "Executive summary" }, children: [] }
+        },
+        decision_options: [
+          { id: "chart_revenue", label: "Revenue line chart", description: "Trend revenue by month.", artifact_kind: "chart", chart_type: "line", produce_payload: { instruction: "server-owned" } },
+          { id: "summary_exec", label: "Executive summary", description: "Summarize grounded findings.", artifact_kind: "summary_panel", produce_payload: { instruction: "server-owned" } }
+        ]
+      })]
+    };
+    const followUp = {
+      ...planningQuestion("run_parent", "artifact_choice"),
+      id: "ques_artifacts",
+      kind: "artifact_choice",
+      blocking: false,
+      phase: "artifact_choice",
+      question: "Select one or more artifacts to produce.",
+      options: [
+        { id: "chart_revenue", label: "Revenue line chart", description: "Trend revenue by month." },
+        { id: "summary_exec", label: "Executive summary", description: "Summarize grounded findings." }
+      ],
+      default_option: "",
+      card: {
+        title: "Available Charts And Docs",
+        prompt: "Select one or more artifacts to produce.",
+        group: "business",
+        options: [],
+        allow_free_text: false,
+        allow_file_reference: false,
+        allow_multi_select: true,
+        submit_label: "Produce selected"
+      },
+      parent_message_id: "msg_answer",
+      parent_artifact_id: "art_options"
+    } as AgentRunQuestion;
+    const parentRun = { ...run("run_parent", "completed", "what charts and docs can you make with this?", "msg_answer"), follow_up_questions: [followUp] };
+    const childRun = { ...run("run_child", "queued", "Produce selected artifacts from the current session sources."), parent_run_id: "run_parent", trigger_question_id: "ques_artifacts" };
+    let runsPayload: AgentRun[] = [parentRun];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "monthly_revenue.csv")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs/run_parent/questions/ques_artifacts/answer") && init?.method === "POST") {
+        runsPayload = [{ ...parentRun, follow_up_questions: [] }, childRun];
+        return Response.json(childRun);
+      }
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json(runsPayload);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect((await screen.findAllByText("Available Charts And Docs")).length).toBeGreaterThan(0);
+    const produce = screen.getByRole("button", { name: /Produce selected/i });
+    expect(produce).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Revenue line chart/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Executive summary/i }));
+    expect(produce).not.toBeDisabled();
+    fireEvent.click(produce);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/sessions/ses_new/runs/run_parent/questions/ques_artifacts/answer",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            free_text: "",
+            answer: { selected_options: ["chart_revenue", "summary_exec"] }
+          })
+        })
+      );
+    });
+    expect(await screen.findByText("Produce selected artifacts from the current session sources.")).toBeInTheDocument();
   });
 
   it("keeps supporting artifacts out of the transcript but available in the artifacts panel", async () => {
@@ -999,7 +1400,7 @@ describe("App", () => {
     expect(await screen.findByText("Sources · 1")).toBeInTheDocument();
   });
 
-  it("surfaces persisted phase timelines in the runs panel", async () => {
+  it("surfaces persisted agent activity in the runs panel", async () => {
     const completedRun = run("run_done", "completed", "Summarize", "msg_answer");
     const answer = { ...message("msg_answer", "ses_new", "assistant", "Answer"), citations: [citation("cit_1")] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1020,8 +1421,8 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "runs" }));
     expect(await screen.findByText("Agent activity")).toBeInTheDocument();
-    expect(screen.getAllByText("plan").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("implement").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("plan task").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("persist response").length).toBeGreaterThan(0);
   });
 
   it("shows planner intent and executable bundle for completed runs with warnings", async () => {
@@ -1101,10 +1502,53 @@ describe("App", () => {
     });
   });
 
-  it("shows failed phase errors in the runs panel", async () => {
+  it("shows artifact recommendation choices and resumes with the selected option", async () => {
+    const waitingRun = run("run_wait", "awaiting_user_input", "best graph for this file");
+    waitingRun.current_question = {
+      ...planningQuestion(waitingRun.id, "choice"),
+      kind: "artifact_choice",
+      question: "Choose an artifact to create from this file.",
+      options: [
+        { id: "chart_line_month_revenue", label: "Line chart", description: "Month gives an ordered x-axis and Revenue is numeric." },
+        { id: "table_preview", label: "Comparison table", description: "SKU and inventory columns form business records." }
+      ],
+      default_option: "chart_line_month_revenue"
+    } as AgentRunQuestion;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_revenue", "monthly_revenue.csv")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([message("msg_user", "ses_new", "user", "best graph for this file")]);
+      if (url.endsWith("/api/sessions/ses_new/runs/run_wait/questions/ques_1/answer") && init?.method === "POST") {
+        return Response.json({ ...waitingRun, status: "queued", current_question: null });
+      }
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([waitingRun]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Choose an artifact to create from this file.")).toBeInTheDocument();
+    expect(screen.getByText("Month gives an ordered x-axis and Revenue is numeric.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Line chart/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/sessions/ses_new/runs/run_wait/questions/ques_1/answer",
+        expect.objectContaining({ method: "POST", body: JSON.stringify({ selected_option: "chart_line_month_revenue", free_text: "" }) })
+      );
+    });
+  });
+
+  it("shows failed action errors in the runs panel", async () => {
     const failedRun = run("run_failed", "failed", "Make a chart");
     failedRun.error = "Selected chat model did not return structured output.";
-    failedRun.steps = failedRun.steps.map((item) => item.phase === "writing" ? { ...item, status: "failed", error: "Selected chat model did not return structured output." } : item);
+    failedRun.actions = failedRun.actions.map((item) => item.kind === "write" ? { ...item, status: "failed", error_summary: "Selected chat model did not return structured output." } : item);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/me")) return Response.json(currentUser);
@@ -1128,11 +1572,11 @@ describe("App", () => {
   it("shows degraded vector search as a warning while the run completes", async () => {
     const degradedRun = run("run_degraded", "completed", "분석 자료 제작", "msg_answer");
     degradedRun.kind = "create";
-    degradedRun.steps = degradedRun.steps.map((item) => item.phase === "search" ? {
+    degradedRun.actions = degradedRun.actions.map((item) => item.kind === "load_sources" ? {
       ...item,
       status: "completed",
-      summary: "Loaded ready source files; vector search unavailable",
-      detail: {
+      output_summary: "Loaded ready source files; vector search unavailable",
+      output_json: {
         vector_search_status: "unavailable_auth",
         vector_search_error: "Client error '401 Unauthorized' for url 'https://openrouter.ai/api/v1/embeddings'"
       }

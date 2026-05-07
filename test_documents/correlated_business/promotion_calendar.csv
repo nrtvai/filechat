@@ -1,0 +1,9 @@
+promotion_id,SKU,channel,region,start_date,end_date,discount_rate,expected_lift,margin_watch,notes
+PR-9001,HB-100,Retail,North,2026-04-01,2026-04-11,0.08,0.18,no,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9002,HB-500,Marketplace,Central,2026-04-02,2026-04-12,0.18,0.18,yes,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9003,HB-200,Wholesale,South,2026-04-03,2026-04-13,0.18,0.18,yes,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9004,SN-700,Distributor,West,2026-04-04,2026-04-14,0.08,0.18,no,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9005,HB-100,Marketplace,South,2026-04-22,2026-05-02,0.08,0.22,no,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9006,HB-500,Wholesale,West,2026-04-23,2026-05-03,0.18,0.22,yes,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9007,HB-200,Distributor,Online,2026-04-24,2026-05-04,0.18,0.22,yes,"Promotion should clear risk inventory without starving high-demand stores"
+PR-9008,SN-700,Subscription,North,2026-04-25,2026-05-05,0.08,0.22,no,"Promotion should clear risk inventory without starving high-demand stores"

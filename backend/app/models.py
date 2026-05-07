@@ -10,7 +10,6 @@ MembershipRole = Literal["owner", "admin", "member"]
 Edition = Literal["community", "enterprise"]
 ArtifactKind = Literal["mermaid", "chart", "table", "decision_cards", "comparison", "summary_panel", "file_draft"]
 ArtifactDisplayMode = Literal["primary", "supporting"]
-AgentPhase = Literal["plan", "search", "analysis", "writing", "review", "implement"]
 AgentRunStatus = Literal[
     "queued",
     "awaiting_approval",
@@ -22,11 +21,62 @@ AgentRunStatus = Literal[
     "completed_with_warning",
     "failed",
 ]
-AgentStepStatus = Literal["pending", "running", "completed", "skipped", "failed"]
+AgentActionKind = Literal[
+    "verify_provider",
+    "classify_request",
+    "plan_task",
+    "ask_user",
+    "load_sources",
+    "rank_sources",
+    "profile_table",
+    "build_evidence",
+    "reason",
+    "write",
+    "validate",
+    "repair",
+    "persist_response",
+    "publish_notion",
+]
+AgentActionStatus = Literal["running", "completed", "failed"]
 ModelRoutingMode = Literal["auto", "balanced", "deep", "manual"]
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
-AgentQuestionKind = Literal["interview_offer", "clarification", "choice", "missing_context", "approval"]
+AgentQuestionKind = Literal["interview_offer", "clarification", "choice", "artifact_choice", "missing_context", "approval"]
 AgentQuestionStatus = Literal["pending", "answered", "cancelled"]
+InsightQuestionGroup = Literal["data", "business"]
+ReviewSeverity = Literal["none", "low", "medium", "high"]
+ReviewConfidence = Literal["low", "medium", "high"]
+
+
+class InsightNarrativeQuestion(BaseModel):
+    id: str
+    group: InsightQuestionGroup
+    question: str
+    options: list[dict[str, Any]] = Field(default_factory=list)
+    default_option: str | None = None
+    requires_reference: bool = False
+
+
+class InsightNarrative(BaseModel):
+    headline: str
+    meaning: str
+    evidence: list[str] = Field(default_factory=list)
+    so_what: str
+    recommended_actions: list[str] = Field(default_factory=list)
+    follow_up_questions: list[InsightNarrativeQuestion] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+    confidence: ReviewConfidence
+    source_columns: list[str] = Field(default_factory=list)
+
+
+class CheckerReport(BaseModel):
+    phase: str
+    passed: bool
+    severity: ReviewSeverity = "none"
+    findings: list[str] = Field(default_factory=list)
+    required_fixes: list[str] = Field(default_factory=list)
+    suggested_followups: list[str] = Field(default_factory=list)
+    reviewed_output: Any | None = None
+    confidence: ReviewConfidence = "medium"
 
 
 class SessionOut(BaseModel):
@@ -95,15 +145,19 @@ class MessageOut(BaseModel):
     total_cost: float = 0.0
 
 
-class AgentRunStepOut(BaseModel):
+class AgentRunActionOut(BaseModel):
     id: str
     run_id: str
-    phase: AgentPhase
     ordinal: int
-    status: AgentStepStatus
-    summary: str = ""
-    detail: dict[str, Any] = Field(default_factory=dict)
-    error: str | None = None
+    kind: AgentActionKind
+    label: str
+    status: AgentActionStatus
+    input_summary: str = ""
+    output_summary: str = ""
+    error_summary: str | None = None
+    input_json: dict[str, Any] = Field(default_factory=dict)
+    output_json: dict[str, Any] = Field(default_factory=dict)
+    validation_json: dict[str, Any] = Field(default_factory=dict)
     started_at: str | None = None
     completed_at: str | None = None
     created_at: str
@@ -116,15 +170,32 @@ class AgentQuestionOptionOut(BaseModel):
     description: str = ""
 
 
+class AgentRunQuestionCardOut(BaseModel):
+    title: str = ""
+    prompt: str = ""
+    group: InsightQuestionGroup | str = "business"
+    options: list[dict[str, Any]] = Field(default_factory=list)
+    allow_free_text: bool = True
+    allow_file_reference: bool = False
+    allow_multi_select: bool = False
+    submit_label: str = "Start follow-up"
+
+
 class AgentRunQuestionOut(BaseModel):
     id: str
     run_id: str
-    phase: AgentPhase
+    action_kind: AgentActionKind | None = None
     kind: AgentQuestionKind
     question: str
     options: list[AgentQuestionOptionOut] = Field(default_factory=list)
     default_option: str | None = None
+    blocking: bool = True
+    phase: str = ""
+    card: AgentRunQuestionCardOut = Field(default_factory=AgentRunQuestionCardOut)
+    parent_message_id: str | None = None
+    parent_artifact_id: str | None = None
     answer: dict[str, Any] | None = None
+    answer_file_ids: list[str] = Field(default_factory=list)
     status: AgentQuestionStatus
     created_at: str
     updated_at: str
@@ -162,7 +233,6 @@ class AgentRunOut(BaseModel):
     error: str | None = None
     execution_plan: dict[str, Any] = Field(default_factory=dict)
     task_contract: dict[str, Any] = Field(default_factory=dict)
-    prompt_context: dict[str, Any] = Field(default_factory=dict)
     provider_status: dict[str, Any] = Field(default_factory=dict)
     agent_actions: list[dict[str, Any]] = Field(default_factory=list)
     review_scores: dict[str, Any] = Field(default_factory=dict)
@@ -173,7 +243,10 @@ class AgentRunOut(BaseModel):
     repair_attempts: list[dict[str, Any]] = Field(default_factory=list)
     quality_warnings: list[str] = Field(default_factory=list)
     current_question: AgentRunQuestionOut | None = None
-    steps: list[AgentRunStepOut] = Field(default_factory=list)
+    follow_up_questions: list[AgentRunQuestionOut] = Field(default_factory=list)
+    parent_run_id: str | None = None
+    trigger_question_id: str | None = None
+    actions: list[AgentRunActionOut] = Field(default_factory=list)
     created_at: str
     updated_at: str
     completed_at: str | None = None
@@ -365,6 +438,7 @@ class RetryRunRequest(BaseModel):
 class AnswerRunQuestionRequest(BaseModel):
     selected_option: str | None = None
     free_text: str | None = None
+    attached_file_ids: list[str] = Field(default_factory=list)
     answer: dict[str, Any] = Field(default_factory=dict)
 
 

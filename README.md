@@ -13,8 +13,8 @@ FileChat is also split at the product boundary: Community edition defaults to a 
 - Run model-led but tool-backed workflows for planning, search, analysis, writing, review, and implement.
 - Build safe artifacts such as charts, tables, summary panels, Mermaid diagrams, and exportable file drafts.
 - Profile survey-style CSVs and generate deterministic chart/table outputs before relying on fragile model formatting.
-- Persist runs, review results, prompt context snapshots, repair attempts, and artifact history for debugging.
-- Degrade gracefully when model/provider steps fail by using local structured analysis where possible.
+- Persist runs, action records, review results, redacted evidence packets, repair attempts, and artifact history for debugging.
+- Degrade gracefully when model/provider actions fail by using local structured analysis where possible.
 
 ## Why This Repo Exists
 

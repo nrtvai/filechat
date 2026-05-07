@@ -1,0 +1,138 @@
+{
+  "status": "passed",
+  "started_at": "2026-05-07T16:57:39.239479+00:00",
+  "base_url": "http://127.0.0.1:8000",
+  "fallback_models": [
+    "openai/gpt-4o-mini",
+    "google/gemini-2.5-flash",
+    "anthropic/claude-sonnet-4.5"
+  ],
+  "flows": [
+    {
+      "name": "warehouse_discovery_and_selection",
+      "status": "passed",
+      "session_id": "ses_7f3850294dc34337",
+      "discovery_run_id": "run_d8f820e685f6440f",
+      "discovery_status": "completed",
+      "planner_attempts": [
+        {
+          "attempt": 1,
+          "model": "deepseek/deepseek-v4-pro",
+          "tactic": "selected_strict",
+          "status": "passed",
+          "response_format": "json_schema",
+          "response_class": "artifact_plan",
+          "response_keys": "[redacted]",
+          "error": ""
+        }
+      ],
+      "final_planner_model": "deepseek/deepseek-v4-pro",
+      "discovery_artifact_kinds": [
+        "decision_cards"
+      ],
+      "citation_count": 1,
+      "child_run_id": "run_8ddf2ee170ea4082",
+      "child_status": "completed",
+      "selected_options": [
+        "chart_warehouse_units",
+        "chart_category_cover"
+      ],
+      "child_artifact_kinds": [
+        "chart",
+        "chart"
+      ],
+      "child_citation_count": 1
+    }
+  ],
+  "direct_model_checks": [
+    {
+      "model": "openai/gpt-4o-mini",
+      "status": "passed",
+      "session_id": "ses_6614761836a844b6",
+      "run_id": "run_182cedf0c53b46a7",
+      "run_status": "completed",
+      "planner_attempts": [
+        {
+          "attempt": 1,
+          "model": "openai/gpt-4o-mini",
+          "tactic": "selected_strict",
+          "status": "passed",
+          "response_format": "json_schema",
+          "response_class": "artifact_plan",
+          "response_keys": "[redacted]",
+          "error": ""
+        }
+      ],
+      "final_planner_model": "openai/gpt-4o-mini",
+      "artifact_kinds": [
+        "decision_cards"
+      ],
+      "citation_count": 1
+    },
+    {
+      "model": "google/gemini-2.5-flash",
+      "status": "passed",
+      "session_id": "ses_7446a2cb264140bb",
+      "run_id": "run_cf4d4de6b5eb4e10",
+      "run_status": "completed",
+      "planner_attempts": [
+        {
+          "attempt": 1,
+          "model": "google/gemini-2.5-flash",
+          "tactic": "selected_strict",
+          "status": "passed",
+          "response_format": "json_schema",
+          "response_class": "artifact_plan",
+          "response_keys": "[redacted]",
+          "error": ""
+        }
+      ],
+      "final_planner_model": "google/gemini-2.5-flash",
+      "artifact_kinds": [
+        "decision_cards"
+      ],
+      "citation_count": 1
+    },
+    {
+      "model": "anthropic/claude-sonnet-4.5",
+      "status": "passed",
+      "session_id": "ses_86d79a77f91a4ca9",
+      "run_id": "run_1535982a60534abe",
+      "run_status": "completed",
+      "planner_attempts": [
+        {
+          "attempt": 1,
+          "model": "anthropic/claude-sonnet-4.5",
+          "tactic": "selected_strict",
+          "status": "passed",
+          "response_format": "json_schema",
+          "response_class": "artifact_plan",
+          "response_keys": "[redacted]",
+          "error": ""
+        }
+      ],
+      "final_planner_model": "anthropic/claude-sonnet-4.5",
+      "artifact_kinds": [
+        "decision_cards"
+      ],
+      "citation_count": 1
+    }
+  ],
+  "frontend_render_check": {
+    "status": "passed",
+    "web_url": "http://127.0.0.1:5173",
+    "http_status": 200
+  },
+  "initial_settings": {
+    "openrouter_key_source": "env",
+    "openrouter_provider_status": "verified",
+    "chat_model": "deepseek/deepseek-v4-pro",
+    "orchestrator_model": "anthropic/claude-sonnet-4.5",
+    "writing_model": "deepseek/deepseek-v4-pro",
+    "repair_model": "deepseek/deepseek-v4-pro",
+    "reasoning_effort": "medium",
+    "model_routing_mode": "auto"
+  },
+  "failures": [],
+  "completed_at": "2026-05-07T17:02:35.253262+00:00"
+}

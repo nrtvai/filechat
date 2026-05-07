@@ -2,9 +2,10 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useM
 import { FileText, KeyRound, Library, Loader2, MessageSquarePlus, PanelLeft, Paperclip, Search, Send, Settings as SettingsIcon, ShieldCheck, X } from "lucide-react";
 import { api } from "./api";
 import { ArtifactRenderer } from "./artifacts";
-import type { AgentRun, AgentRunQuestion, AgentRunStep, Artifact, Citation, ContextProfile, CurrentUser, FileRecord, MembershipRole, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
+import type { AgentRun, AgentRunAction, AgentRunQuestion, Artifact, Citation, ContextProfile, CurrentUser, Edition, FileRecord, MembershipRole, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
 
 const acceptedTypes = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif";
+const appVersion = import.meta.env.VITE_APP_VERSION ?? "0.0.0";
 type RightTab = "files" | "citations" | "artifacts" | "runs" | "settings" | "admin";
 const emptyUsageSummary: UsageSummary = {
   chat_prompt_tokens: 0,
@@ -67,6 +68,30 @@ function contextStatus(file: FileRecord) {
   return `${Math.round(file.progress * 100)}%`;
 }
 
+function localTestModeUser(): CurrentUser {
+  const mode = api.effectiveTestMode();
+  const enterprise = mode.edition === "enterprise";
+  return {
+    id: enterprise ? `usr_test_${mode.role}` : "usr_single",
+    display_name: enterprise ? `Test ${mode.role}` : "Local user",
+    email: enterprise ? `${mode.role}@filechat.test` : "local@filechat.dev",
+    role: enterprise ? mode.role : "owner",
+    organization_id: "org_single",
+    edition: mode.edition,
+    enterprise_enabled: enterprise,
+    auth_test_mode: true,
+    auth_mode: "local_mode_switcher_fallback",
+    capabilities: {
+      use_sessions: true,
+      manage_settings: !enterprise || mode.role !== "member",
+      manage_provider_keys: !enterprise || mode.role !== "member",
+      export_logs: !enterprise || mode.role === "owner",
+      use_admin_console: enterprise && mode.role !== "member",
+      switch_test_mode: true,
+    },
+  };
+}
+
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -117,13 +142,32 @@ export function App() {
     setRuns(Array.isArray(nextRuns) ? nextRuns : []);
   }, []);
 
+  const refreshIdentity = useCallback(async () => {
+    const [nextUser, nextSettings] = await Promise.all([api.me(), api.settings()]);
+    setCurrentUser(nextUser);
+    setSettings(nextSettings);
+    setError(null);
+    setRightTab((tab) => (!nextUser.capabilities.use_admin_console && tab === "admin" ? "settings" : tab));
+    return nextUser;
+  }, []);
+
   useEffect(() => {
     let mounted = true;
-    Promise.all([api.me(), api.settings(), api.contextProfile(), api.createSession()])
-      .then(async ([nextUser, nextSettings, nextProfile, created]) => {
+    refreshIdentity()
+      .catch(async (err: Error) => {
         if (!mounted) return;
-        setCurrentUser(nextUser);
-        setSettings(nextSettings);
+        setCurrentUser(localTestModeUser());
+        setError(err.message);
+        try {
+          const nextSettings = await api.settings();
+          if (mounted) setSettings(nextSettings);
+        } catch {
+          // Keep the primary identity error visible; the retry loop below will reconcile when the API recovers.
+        }
+      });
+    Promise.all([api.contextProfile(), api.createSession()])
+      .then(async ([nextProfile, created]) => {
+        if (!mounted) return;
         setContextProfile({ ...defaultContextProfile, ...nextProfile });
         activeSessionIdRef.current = created.id;
         setActiveSessionId(created.id);
@@ -136,7 +180,15 @@ export function App() {
       })
       .catch((err: Error) => setError(err.message));
     return () => { mounted = false; };
-  }, []);
+  }, [refreshIdentity]);
+
+  useEffect(() => {
+    if (currentUser?.auth_mode !== "local_mode_switcher_fallback") return;
+    const handle = setInterval(() => {
+      refreshIdentity().catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(handle);
+  }, [currentUser?.auth_mode, refreshIdentity]);
 
   useEffect(() => {
     if (!activeSessionId) return;
@@ -289,12 +341,19 @@ export function App() {
     }
   };
 
-  const answerRunQuestion = async (runId: string, questionId: string, selectedOption: string, freeText = "") => {
+  const answerRunQuestion = async (
+    runId: string,
+    questionId: string,
+    selectedOption: string | null,
+    freeText = "",
+    attachedFileIds: string[] = [],
+    answer: Record<string, unknown> = {}
+  ) => {
     if (!activeSessionId) return;
     const sessionId = activeSessionId;
     setError(null);
     try {
-      const run = await api.answerRunQuestion(sessionId, runId, questionId, selectedOption, freeText);
+      const run = await api.answerRunQuestion(sessionId, runId, questionId, selectedOption, freeText, attachedFileIds, answer);
       upsertRun(run);
       await refreshActive(sessionId);
       setRightTab("runs");
@@ -359,13 +418,16 @@ export function App() {
     }
   };
 
-  const setTestRole = async (role: MembershipRole) => {
-    api.setTestRole(role);
-    const [nextUser, nextSettings] = await Promise.all([api.me(), api.settings()]);
-    setCurrentUser(nextUser);
-    setSettings(nextSettings);
-    if (!nextUser.capabilities.use_admin_console && rightTab === "admin") {
-      setRightTab("settings");
+  const setTestMode = async (edition: Edition, role: MembershipRole) => {
+    api.setTestMode(edition, role);
+    if (currentUser?.auth_mode === "local_mode_switcher_fallback") {
+      setCurrentUser(localTestModeUser());
+    }
+    try {
+      await refreshIdentity();
+    } catch (err) {
+      setCurrentUser(localTestModeUser());
+      setError(err instanceof Error ? err.message : "Could not switch local test mode");
     }
   };
 
@@ -387,10 +449,10 @@ export function App() {
         <button className="icon-btn" onClick={() => setRailOpen((open) => !open)} aria-label="Toggle sidebar"><PanelLeft size={16} /></button>
         <div className="brand">
           <span>FileChat</span>
-          <span className="mono subtle">local · v0.1.0</span>
+          <span className="mono subtle">local · v{appVersion}</span>
         </div>
         <div className="topbar-spacer" />
-        {currentUser && <EditionControls user={currentUser} setTestRole={setTestRole} />}
+        {currentUser && <EditionControls user={currentUser} setTestMode={setTestMode} />}
         <div className="provider-pill"><span className={settings?.openrouter_key_configured ? "dot ready" : "dot warn"} /> OpenRouter · {settings?.chat_model ?? "loading"}</div>
         <div className="mono caps subtle">grounded · strict</div>
       </header>
@@ -474,7 +536,22 @@ export function App() {
   );
 }
 
-function EditionControls({ user, setTestRole }: { user: CurrentUser; setTestRole: (role: MembershipRole) => Promise<void> }) {
+function modeValue(user: CurrentUser) {
+  if (!user.enterprise_enabled) return "community";
+  return `enterprise:${user.role}`;
+}
+
+function parseMode(value: string): { edition: Edition; role: MembershipRole } {
+  if (value === "community") return { edition: "community", role: "owner" };
+  const role = value.split(":")[1];
+  return {
+    edition: "enterprise",
+    role: role === "owner" || role === "admin" || role === "member" ? role : "admin",
+  };
+}
+
+function EditionControls({ user, setTestMode }: { user: CurrentUser; setTestMode: (edition: Edition, role: MembershipRole) => Promise<void> }) {
+  const canSwitchMode = Boolean(user.capabilities.switch_test_mode);
   return (
     <div className="edition-controls">
       <div className={`edition-pill ${user.enterprise_enabled ? "enterprise" : "community"}`}>
@@ -482,13 +559,21 @@ function EditionControls({ user, setTestRole }: { user: CurrentUser; setTestRole
         <span>{user.enterprise_enabled ? "Enterprise" : "Community"}</span>
         <small>{user.role}</small>
       </div>
-      {user.auth_test_mode && (
+      {canSwitchMode && (
         <label className="role-switch">
-          <span className="mono caps">test role</span>
-          <select value={user.role} onChange={(event) => void setTestRole(event.target.value as MembershipRole)}>
-            <option value="owner">Owner</option>
-            <option value="admin">Admin</option>
-            <option value="member">Member</option>
+          <span className="mono caps">test mode</span>
+          <select
+            aria-label="Test mode"
+            value={modeValue(user)}
+            onChange={(event) => {
+              const next = parseMode(event.target.value);
+              void setTestMode(next.edition, next.role);
+            }}
+          >
+            <option value="community">Community</option>
+            <option value="enterprise:owner">Enterprise owner</option>
+            <option value="enterprise:admin">Enterprise admin</option>
+            <option value="enterprise:member">Enterprise member</option>
           </select>
         </label>
       )}
@@ -639,7 +724,7 @@ function Transcript(props: {
   onCitationClick: (citation: Citation) => void;
   onArtifactSelect: (artifact: Artifact) => void;
   onDetachFile: (fileId: string) => Promise<void>;
-  onAnswerRunQuestion: (runId: string, questionId: string, selectedOption: string, freeText?: string) => Promise<void>;
+  onAnswerRunQuestion: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
   settings: Settings | null;
   contextProfile: ContextProfile;
 }) {
@@ -675,34 +760,43 @@ function Transcript(props: {
   return (
     <section className="transcript">
       <div ref={scrollRef} className="turns" onScroll={onScroll}>
-        {props.messages.map((message) => (
-          <article key={message.id} className={`turn ${message.role}`}>
-            <div className="turn-label mono caps">{message.role === "user" ? "You" : "FileChat"}</div>
-            <div className="bubble">
-              <RenderedMessage content={message.content} />
-              <MessageCost message={message} />
-              {message.role === "assistant" && visibleArtifacts(message, props.contextProfile).length > 0 && (
-                <div className="artifact-list">
-                  {visibleArtifacts(message, props.contextProfile).map((artifact) => (
-                    <ArtifactRenderer
-                      key={artifact.id}
-                      artifact={artifact}
-                      citations={message.citations}
-                      onCitationClick={props.onCitationClick}
-                      onSelectArtifact={props.onArtifactSelect}
-                    />
-                  ))}
-                </div>
-              )}
-              {message.role === "assistant" && props.runs.some((run) => run.assistant_message_id === message.id) && (
-                <PhaseTimeline run={props.runs.find((run) => run.assistant_message_id === message.id)!} compact />
-              )}
-              {message.role === "assistant" && message.citations.length > 0 && (
-                <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
-              )}
-            </div>
-          </article>
-        ))}
+        {props.messages.map((message) => {
+          const messageRun = message.role === "assistant" ? props.runs.find((run) => run.assistant_message_id === message.id) : undefined;
+          return (
+            <article key={message.id} className={`turn ${message.role}`}>
+              <div className="turn-label mono caps">{message.role === "user" ? "You" : "FileChat"}</div>
+              <div className="bubble">
+                <RenderedMessage content={message.content} />
+                <MessageCost message={message} />
+                {message.role === "assistant" && visibleArtifacts(message, props.contextProfile).length > 0 && (
+                  <div className="artifact-list">
+                    {visibleArtifacts(message, props.contextProfile).map((artifact) => (
+                      <ArtifactRenderer
+                        key={artifact.id}
+                        artifact={artifact}
+                        citations={message.citations}
+                        onCitationClick={props.onCitationClick}
+                        onSelectArtifact={props.onArtifactSelect}
+                      />
+                    ))}
+                  </div>
+                )}
+                {messageRun && messageRun.follow_up_questions.length > 0 && (
+                  <FollowUpQuestionCards
+                    run={messageRun}
+                    questions={messageRun.follow_up_questions}
+                    files={props.files}
+                    onAnswer={props.onAnswerRunQuestion}
+                  />
+                )}
+                {messageRun && <AgentActivity run={messageRun} compact />}
+                {message.role === "assistant" && message.citations.length > 0 && (
+                  <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
+                )}
+              </div>
+            </article>
+          );
+        })}
         {props.busy && (
           <article className="turn assistant pending" aria-live="polite">
             <div className="turn-label mono caps">FileChat</div>
@@ -710,7 +804,7 @@ function Transcript(props: {
               <Loader2 className="spin" size={15} />
               <span>Reading the sources...</span>
             </div>
-            {activeRun && <PhaseTimeline run={activeRun} compact />}
+            {activeRun && <AgentActivity run={activeRun} compact />}
           </article>
         )}
         {waitingRun?.current_question && (
@@ -984,7 +1078,7 @@ function RightPanel(props: {
   clearOpenRouterKey: () => Promise<void>;
   approveRun: (runId: string) => Promise<void>;
   retryRun: (runId: string, mode?: "repair" | "rerun") => Promise<void>;
-  answerRunQuestion: (runId: string, questionId: string, selectedOption: string, freeText?: string) => Promise<void>;
+  answerRunQuestion: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
   highlightCitationId: string | null;
   activeSession: Session | null;
   currentUser: CurrentUser | null;
@@ -1114,6 +1208,7 @@ function ArtifactsTab({
           <div className="artifact-export-row">
             <a className="artifact-inline-action" href={api.exportArtifactUrl(selected.session_id, selected.id, "md")}>Markdown</a>
             <a className="artifact-inline-action" href={api.exportArtifactUrl(selected.session_id, selected.id, "json")}>JSON</a>
+            <a className="artifact-inline-action" href={api.exportArtifactUrl(selected.session_id, selected.id, "notion")}>Notion</a>
           </div>
         )}
       </article>
@@ -1137,7 +1232,7 @@ function RunsTab({
   runs: AgentRun[];
   approveRun: (runId: string) => Promise<void>;
   retryRun: (runId: string, mode?: "repair" | "rerun") => Promise<void>;
-  answerRunQuestion: (runId: string, questionId: string, selectedOption: string, freeText?: string) => Promise<void>;
+  answerRunQuestion: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
 }) {
   if (runs.length === 0) {
     return <div className="panel-empty">No agent runs yet.</div>;
@@ -1160,7 +1255,7 @@ function RunsTab({
             <PlanningQuestionCard run={run} question={run.current_question} onAnswer={answerRunQuestion} compact />
           )}
           <RunSetupDetails run={run} />
-          <PhaseTimeline run={run} />
+          <AgentActivity run={run} />
           <div className="run-actions">
             {run.status === "awaiting_approval" && <button className="artifact-inline-action" type="button" onClick={() => void approveRun(run.id)}>Approve plan</button>}
             {run.status !== "queued" && run.status !== "running" && <button className="artifact-inline-action" type="button" onClick={() => void retryRun(run.id, "rerun")}>Retry run</button>}
@@ -1181,6 +1276,150 @@ function recordLike(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function FollowUpQuestionCards({
+  run,
+  questions,
+  files,
+  onAnswer
+}: {
+  run: AgentRun;
+  questions: AgentRunQuestion[];
+  files: FileRecord[];
+  onAnswer: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
+}) {
+  const readyFiles = files.filter((item) => item.status === "ready");
+  return (
+    <div className="follow-up-question-list" aria-label="Follow-up questions">
+      {questions.map((question) => (
+        <FollowUpQuestionCard key={question.id} run={run} question={question} readyFiles={readyFiles} onAnswer={onAnswer} />
+      ))}
+    </div>
+  );
+}
+
+function FollowUpQuestionCard({
+  run,
+  question,
+  readyFiles,
+  onAnswer
+}: {
+  run: AgentRun;
+  question: AgentRunQuestion;
+  readyFiles: FileRecord[];
+  onAnswer: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
+}) {
+  const card = question.card;
+  const defaultOption = question.default_option || question.options[0]?.id || "";
+  const multiSelect = Boolean(card.allow_multi_select);
+  const [selectedOption, setSelectedOption] = useState(defaultOption);
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [freeText, setFreeText] = useState("");
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  const prompt = card.prompt || question.question;
+  const referenceReady = !card.allow_file_reference || selectedFileIds.length > 0;
+  const canSubmit = referenceReady && (
+    multiSelect
+      ? selectedOptions.length > 0
+      : Boolean(selectedOption || freeText.trim() || selectedFileIds.length > 0)
+  );
+  const toggleFile = (fileId: string) => {
+    setSelectedFileIds((items) => items.includes(fileId) ? items.filter((item) => item !== fileId) : [...items, fileId]);
+  };
+  const toggleOption = (optionId: string) => {
+    setSelectedOptions((items) => items.includes(optionId) ? items.filter((item) => item !== optionId) : [...items, optionId]);
+  };
+  const submitLabel = card.submit_label || "Start follow-up";
+
+  return (
+    <div className="follow-up-question-card">
+      <div className="follow-up-question-head">
+        <span className="mono caps">{card.group || question.phase}</span>
+        <strong>{card.title || "Question to answer next"}</strong>
+      </div>
+      <p>{prompt}</p>
+      {question.options.length > 0 && multiSelect && (
+        <div className="follow-up-option-checks">
+          {question.options.map((option) => (
+            <label key={option.id}>
+              <input
+                type="checkbox"
+                checked={selectedOptions.includes(option.id)}
+                onChange={() => toggleOption(option.id)}
+              />
+              <span>{option.label}</span>
+              {option.description && <small>{option.description}</small>}
+            </label>
+          ))}
+        </div>
+      )}
+      {question.options.length > 0 && !multiSelect && (
+        <div className="follow-up-option-row">
+          {question.options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={selectedOption === option.id}
+              className={selectedOption === option.id ? "selected" : ""}
+              onClick={() => setSelectedOption(option.id)}
+            >
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {card.allow_free_text && (
+        <textarea
+          aria-label="Follow-up note"
+          value={freeText}
+          onChange={(event) => setFreeText(event.target.value)}
+          placeholder="Add context"
+        />
+      )}
+      {card.allow_file_reference && (
+        <div className="follow-up-file-picker">
+          <div className="follow-up-file-head">
+            <Paperclip size={14} />
+            <span>Attach reference</span>
+          </div>
+          {readyFiles.length > 0 ? (
+            <div className="follow-up-file-options">
+              {readyFiles.map((fileItem) => (
+                <label key={fileItem.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedFileIds.includes(fileItem.id)}
+                    onChange={() => toggleFile(fileItem.id)}
+                  />
+                  <span>{fileItem.name}</span>
+                  <small className="mono">{fileItem.type}</small>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <small className="follow-up-empty">No ready reference files.</small>
+          )}
+        </div>
+      )}
+      <button
+        type="button"
+        className="follow-up-submit"
+        disabled={!canSubmit}
+        onClick={() => void onAnswer(
+          run.id,
+          question.id,
+          multiSelect ? null : selectedOption,
+          freeText,
+          selectedFileIds,
+          multiSelect ? { selected_options: selectedOptions } : {}
+        )}
+      >
+        <Send size={14} />
+        <span>{submitLabel}</span>
+      </button>
+    </div>
+  );
+}
+
 function PlanningQuestionCard({
   run,
   question,
@@ -1189,7 +1428,7 @@ function PlanningQuestionCard({
 }: {
   run: AgentRun;
   question: AgentRunQuestion;
-  onAnswer: (runId: string, questionId: string, selectedOption: string, freeText?: string) => Promise<void>;
+  onAnswer: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
   compact?: boolean;
 }) {
   const [freeText, setFreeText] = useState("");
@@ -1197,7 +1436,7 @@ function PlanningQuestionCard({
     <div className={`planning-question-card ${compact ? "compact" : ""}`} aria-label="Planning question">
       <div className="planning-question-head">
         <span className="mono caps">Planning needs a choice</span>
-        <strong>{question.kind === "interview_offer" ? "Interview or automatic?" : "One more planning question"}</strong>
+        <strong>{question.kind === "interview_offer" ? "Interview or automatic?" : question.kind === "artifact_choice" ? "Choose an artifact" : "One more planning question"}</strong>
       </div>
       <p>{question.question}</p>
       {question.kind === "clarification" && (
@@ -1230,7 +1469,6 @@ function RunSetupDetails({ run }: { run: AgentRun }) {
   });
   const hasDetails = planEntries.length > 0
     || Object.keys(run.task_contract ?? {}).length > 0
-    || Object.keys(run.prompt_context ?? {}).length > 0
     || Object.keys(run.provider_status ?? {}).length > 0
     || Object.keys(run.review_scores ?? {}).length > 0
     || Object.keys(run.model_assignments ?? {}).length > 0
@@ -1263,7 +1501,6 @@ function RunSetupDetails({ run }: { run: AgentRun }) {
       <pre>{JSON.stringify({
         execution_plan: run.execution_plan,
         task_contract: run.task_contract,
-        prompt_context: run.prompt_context,
         provider_status: run.provider_status,
         agent_actions: run.agent_actions,
         review_scores: run.review_scores,
@@ -1278,47 +1515,84 @@ function RunSetupDetails({ run }: { run: AgentRun }) {
   );
 }
 
-function PhaseTimeline({ run, compact = false }: { run: AgentRun; compact?: boolean }) {
+const actionGroups: Record<string, string> = {
+  verify_provider: "setup",
+  classify_request: "setup",
+  plan_task: "setup",
+  ask_user: "setup",
+  load_sources: "source work",
+  rank_sources: "source work",
+  profile_table: "source work",
+  build_evidence: "reasoning",
+  reason: "reasoning",
+  write: "artifact work",
+  repair: "artifact work",
+  validate: "validation",
+  persist_response: "publishing",
+  publish_notion: "publishing",
+};
+
+function AgentActivity({ run, compact = false }: { run: AgentRun; compact?: boolean }) {
+  const grouped = run.actions.reduce<Array<{ group: string; actions: AgentRunAction[] }>>((items, action) => {
+    const group = actionGroups[action.kind] ?? "activity";
+    const current = items[items.length - 1];
+    if (!current || current.group !== group) items.push({ group, actions: [action] });
+    else current.actions.push(action);
+    return items;
+  }, []);
   return (
-    <div className={`phase-timeline ${compact ? "compact" : ""}`} aria-label="Agent phase timeline">
-      {run.steps.map((step) => (
-        <PhaseStep key={step.id} step={step} compact={compact} />
+    <div className={`agent-activity ${compact ? "compact" : ""}`} aria-label="Agent activity">
+      {grouped.map((group) => (
+        <div className="agent-activity-group" key={`${group.group}-${group.actions[0]?.id}`}>
+          {!compact && <div className="agent-activity-group-label mono caps">{group.group}</div>}
+          {group.actions.map((action) => (
+            <AgentActionRow key={action.id} action={action} compact={compact} />
+          ))}
+        </div>
       ))}
-      {run.error && <div className="phase-error">{providerErrorSummary(run.error)}</div>}
+      {run.error && <div className="activity-error">{providerErrorSummary(run.error)}</div>}
     </div>
   );
 }
 
-function PhaseStep({ step, compact }: { step: AgentRunStep; compact: boolean }) {
-  const detailEntries = Object.entries(step.detail ?? {}).filter(([, value]) => {
+function AgentActionRow({ action, compact }: { action: AgentRunAction; compact: boolean }) {
+  const details = {
+    input: action.input_json,
+    output: action.output_json,
+    validation: action.validation_json,
+  };
+  const detailEntries = Object.entries(details).filter(([, value]) => {
+    if (!value || typeof value !== "object") return false;
     if (Array.isArray(value)) return value.length > 0;
-    return value !== undefined && value !== null && value !== "";
+    return Object.keys(value as Record<string, unknown>).length > 0;
   });
-  const vectorStatus = typeof step.detail?.vector_search_status === "string" ? step.detail.vector_search_status : "";
-  const vectorError = typeof step.detail?.vector_search_error === "string" ? step.detail.vector_search_error : "";
+  const output = action.output_json ?? {};
+  const vectorStatus = typeof output.vector_search_status === "string" ? output.vector_search_status : "";
+  const vectorError = typeof output.vector_search_error === "string" ? output.vector_search_error : "";
   const degradedVector = vectorStatus.startsWith("unavailable");
+  const summary = action.output_summary || action.input_summary;
   return (
-    <div className={`phase-step ${step.status}`}>
-      <div className="phase-dot" />
-      <div className="phase-main">
-        <div className="phase-line">
-          <span className="mono caps">{step.phase}</span>
-          <em>{step.status}</em>
+    <div className={`agent-action ${action.status}`}>
+      <div className="activity-dot" />
+      <div className="activity-main">
+        <div className="activity-line">
+          <span className="mono caps">{action.kind.replace(/_/g, " ")}</span>
+          <em>{action.status}</em>
         </div>
-        {!compact && step.summary && <p>{step.summary}</p>}
-        {!compact && degradedVector && <p className="phase-warning">{providerErrorSummary(vectorError || vectorStatus)}</p>}
-        {!compact && step.error && <p className="phase-error">{providerErrorSummary(step.error)}</p>}
+        {!compact && <strong>{action.label}</strong>}
+        {!compact && summary && <p>{summary}</p>}
+        {!compact && degradedVector && <p className="activity-warning">{providerErrorSummary(vectorError || vectorStatus)}</p>}
+        {!compact && action.error_summary && <p className="activity-error">{providerErrorSummary(action.error_summary)}</p>}
         {!compact && detailEntries.length > 0 && (
           <details>
             <summary>Details</summary>
-            <pre>{JSON.stringify(step.detail, null, 2)}</pre>
+            <pre>{JSON.stringify(details, null, 2)}</pre>
           </details>
         )}
       </div>
     </div>
   );
 }
-
 function SettingsTab({
   settings,
   contextProfile,
@@ -1529,7 +1803,7 @@ function SettingsTab({
           </label>
           <label className="model-check">
             <input type="checkbox" checked={Boolean(settings?.web_search_enabled)} onChange={(event) => void updateSettings({ web_search_enabled: event.target.checked })} />
-            Optional web search phase
+            Optional web search
           </label>
           <label>Search engine
             <select value={settings?.web_search_engine ?? "auto"} onChange={(event) => void updateSettings({ web_search_engine: event.target.value })}>

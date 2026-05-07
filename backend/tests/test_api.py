@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from pathlib import Path
 
 import pytest
 import httpx
@@ -10,7 +11,9 @@ from fastapi.testclient import TestClient
 from backend.app.audit import record_audit_event
 from backend.app.auth import Principal
 from backend.app.config import get_settings
+from backend.app.agent_runs import create_agent_run, create_run_question, get_agent_run, set_action
 from backend.app.agent_runtime import review_contract_result
+from backend.app.analysis_engine import build_insight_brief
 from backend.app.artifacts import ValidatedArtifact, validate_artifacts_with_report
 from backend.app.database import connect
 from backend.app.main import app
@@ -163,6 +166,33 @@ def test_community_me_defaults_to_single_user_owner(monkeypatch, tmp_path):
         assert payload["role"] == "owner"
         assert payload["enterprise_enabled"] is False
         assert payload["capabilities"]["manage_provider_keys"] is True
+        assert payload["capabilities"]["switch_test_mode"] is True
+
+
+def test_local_mode_switcher_headers_toggle_edition_and_role(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        member_headers = {"X-FileChat-Test-Edition": "enterprise", "X-FileChat-Test-Role": "member"}
+        admin_headers = {"X-FileChat-Test-Edition": "enterprise", "X-FileChat-Test-Role": "admin"}
+        community_headers = {"X-FileChat-Test-Edition": "community", "X-FileChat-Test-Role": "member"}
+
+        member = client.get("/api/me", headers=member_headers).json()
+        assert member["edition"] == "enterprise"
+        assert member["role"] == "member"
+        assert member["auth_mode"] == "local_mode_switcher"
+        assert member["capabilities"]["manage_provider_keys"] is False
+
+        denied = client.patch("/api/admin/settings", json={"chat_model": "openai/denied"}, headers=member_headers)
+        assert denied.status_code == 403
+
+        admin_settings = client.get("/api/admin/settings", headers=admin_headers)
+        assert admin_settings.status_code == 200
+        assert admin_settings.json()["edition"] == "enterprise"
+        assert admin_settings.json()["settings_scope"] == "organization"
+
+        community = client.get("/api/me", headers=community_headers).json()
+        assert community["edition"] == "community"
+        assert community["role"] == "owner"
+        assert community["capabilities"]["manage_provider_keys"] is True
 
 
 def test_enterprise_ignores_auth_headers_until_trusted_adapter_enabled(monkeypatch, tmp_path):
@@ -355,6 +385,26 @@ def test_env_openrouter_key_overrides_stale_local_key(monkeypatch, tmp_path):
 
         assert key == "env-key"
         assert source == "env"
+
+
+def test_openrouter_key_save_falls_back_to_db_when_keyring_readback_fails(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("backend.app.settings_store._keyring_set", lambda value: True)
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        saved = client.patch("/api/settings", json={"openrouter_api_key": "sk-or-local-secret"})
+
+        assert saved.status_code == 200
+        payload = saved.json()
+        assert payload["openrouter_key_configured"] is True
+        assert payload["openrouter_key_source"] == "local"
+        key, source = get_openrouter_key()
+        assert key == "sk-or-local-secret"
+        assert source == "local"
 
 
 def test_clear_local_openrouter_key_resets_provider_state(monkeypatch, tmp_path):
@@ -711,6 +761,63 @@ def test_missing_unverified_provider_blocks_model_run(monkeypatch, tmp_path):
         payload = started.json()
         assert payload["status"] == "needs_setup"
         assert "OpenRouter" in payload["error"]
+        assert [(action["kind"], action["status"]) for action in payload["actions"]] == [("verify_provider", "failed")]
+
+
+def test_verify_missing_provider_returns_settings_not_internal_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        verified = client.post("/api/settings/openrouter/verify")
+
+        assert verified.status_code == 200
+        payload = verified.json()
+        assert payload["openrouter_provider_status"] == "missing"
+        assert "API key" in payload["openrouter_provider_message"]
+
+
+def test_persisted_action_json_redacts_secrets(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Redaction"}).json()
+        run = create_agent_run(session["id"], "Summarize")
+
+        set_action(
+            run.id,
+            "reason",
+            "completed",
+            output_summary="Prepared decision summary",
+            input_json={"Authorization": "Bearer secret-token", "nested": {"api_key": "sk-or-secret"}},
+            output_json={"safe": "ok", "raw": "secret raw payload"},
+        )
+
+        saved = get_agent_run(run.id)
+        assert saved is not None
+        action = saved.actions[0]
+        assert action.input_json["Authorization"] == "[redacted]"
+        assert action.input_json["nested"]["api_key"] == "[redacted]"
+        assert action.output_json["raw"] == "[redacted]"
+
+
+def test_no_source_run_records_only_actual_actions(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "No source"}).json()
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Summarize this"})
+
+        assert started.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert [action["kind"] for action in run["actions"]] == [
+            "verify_provider",
+            "classify_request",
+            "plan_task",
+            "load_sources",
+            "persist_response",
+        ]
 
 
 def test_openrouter_verify_endpoint_marks_provider_verified(monkeypatch, tmp_path):
@@ -1003,7 +1110,43 @@ def test_docx_artifact_discovery_returns_json_render_options(monkeypatch, tmp_pa
     spec = payload["artifacts"][0]["spec"]
     assert spec["root"] == "card"
     assert "visible" not in spec["elements"]["card"]
-    assert any(element["type"] == "ActionButton" for element in spec["elements"].values())
+    assert not any(element["type"] == "ActionButton" for element in spec["elements"].values())
+    assert spec["decision_options"]
+    assert all(option["produce_payload"] for option in spec["decision_options"])
+
+
+def test_artifact_discovery_fallback_options_do_not_use_stale_ai_or_groupware_labels(monkeypatch, tmp_path):
+    async def fail_chat(self, *, model, question, sources, unavailable, history=None, prompt_context=None):
+        raise AssertionError("artifact discovery should not call model writing")
+
+    monkeypatch.setattr(OpenRouterClient, "chat", fail_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Facilities memo"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "facilities.txt",
+                    b"Facilities maintenance memo. March roof inspection. April safety training. May budget review.",
+                    "text/plain",
+                )
+            },
+        )
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "what charts and docs can you make with this?"},
+        )
+
+        assert answer.status_code == 200
+        spec = answer.json()["artifacts"][0]["spec"]
+        serialized = json.dumps(spec)
+        assert "AI adoption" not in serialized
+        assert "Groupware" not in serialized
+        assert "Facilities" in serialized or "Source" in serialized
+        assert spec["decision_options"]
+        assert all(option["produce_payload"] for option in spec["decision_options"])
 
 
 def test_timeline_roadmap_renders_as_json_summary_artifact(monkeypatch, tmp_path):
@@ -1040,6 +1183,77 @@ def test_timeline_roadmap_renders_as_json_summary_artifact(monkeypatch, tmp_path
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "completed"
         assert run["task_contract"]["required_outputs"] == ["summary_panel"]
+
+
+def test_sales_order_timeline_includes_concise_summary_panel_and_citations(monkeypatch, tmp_path):
+    async def fake_review_phase(
+        self,
+        *,
+        model,
+        phase,
+        phase_goal,
+        task_contract,
+        evidence_packet,
+        source_refs,
+        artifact_specs,
+        answer_draft,
+        prior_checker_reports=None,
+    ):
+        serialized = json.dumps(artifact_specs, ensure_ascii=False)
+        summary_panels = [artifact for artifact in artifact_specs if artifact.get("kind") == "summary_panel"]
+        raw_csv_leak = "order_id,SKU" in serialized or "SO-1001,HB-100" in serialized
+        answer_mentions_both = "timeline panel" in answer_draft.lower() and "summary panel" in answer_draft.lower()
+        if raw_csv_leak or len(summary_panels) < 2 or not answer_mentions_both or not source_refs:
+            return {
+                "phase": phase,
+                "passed": False,
+                "severity": "high",
+                "findings": [
+                    "Timeline output must avoid raw CSV dumps, include both panels, and remain source-grounded."
+                ],
+                "required_fixes": [
+                    "Create a concise timeline panel plus a concise sales orders summary panel with citations."
+                ],
+                "suggested_followups": [],
+                "confidence": "high",
+            }
+        return {
+            "phase": phase,
+            "passed": True,
+            "severity": "none",
+            "findings": [],
+            "required_fixes": [],
+            "suggested_followups": [],
+            "confidence": "high",
+        }
+
+    monkeypatch.setattr(OpenRouterClient, "review_phase", fake_review_phase)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Sales order timeline"}).json()
+        body = Path("test_documents/correlated_business/sales_orders.csv").read_bytes()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("sales_orders.csv", body, "text/csv")},
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Create a sales orders timeline panel"})
+
+        assert started.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        latest = messages[-1]
+        assert latest["citations"]
+        assert "timeline panel" in latest["content"].lower()
+        assert "summary panel" in latest["content"].lower()
+        panels = [artifact for artifact in latest["artifacts"] if artifact["kind"] == "summary_panel"]
+        assert len(panels) == 2
+        for panel in panels:
+            assert panel["source_chunk_ids"]
+        serialized = json.dumps([panel["spec"] for panel in panels], ensure_ascii=False)
+        assert "order_id,SKU" not in serialized
+        assert "SO-1001,HB-100" not in serialized
 
 
 def test_timeline_json_render_spec_validates_but_timeline_chart_type_does_not():
@@ -1232,7 +1446,7 @@ async def test_chat_response_missing_choices_is_actionable(monkeypatch, tmp_path
         )
 
 
-def test_agent_run_persists_phase_steps(monkeypatch, tmp_path):
+def test_agent_run_persists_adaptive_actions(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         session = client.post("/api/sessions", json={"title": "Run"}).json()
         client.post(
@@ -1245,12 +1459,363 @@ def test_agent_run_persists_phase_steps(monkeypatch, tmp_path):
         assert started.status_code == 200
         runs = client.get(f"/api/sessions/{session['id']}/runs").json()
         assert runs[0]["status"] == "completed"
-        assert [step["phase"] for step in runs[0]["steps"]] == ["plan", "search", "analysis", "writing", "review", "implement"]
+        assert "steps" not in runs[0]
+        assert [action["kind"] for action in runs[0]["actions"]] == [
+            "verify_provider",
+            "classify_request",
+            "plan_task",
+            "load_sources",
+            "rank_sources",
+            "profile_table",
+            "build_evidence",
+            "write",
+            "validate",
+            "persist_response",
+        ]
         assert runs[0]["assistant_message_id"]
         assert runs[0]["execution_plan"]["requested_outputs"] == ["chart"]
         assert runs[0]["execution_plan"]["reasoning_required"] is True
         assert runs[0]["model_assignments"]["analysis"]["reasoning_effort"] == "medium"
-        assert any(call["tool"] == "survey_profiler" for call in runs[0]["tool_calls"])
+        assert any(call["tool"] == "source_profiler" for call in runs[0]["tool_calls"])
+
+
+def test_business_csv_request_profiles_table_not_survey(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Warehouse"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "warehouse_stock_units.csv",
+                    b"SKU,warehouse,category,units_on_hand,reorder_point,unit_cost\nHB-100,North,Hardware,18,30,12.50\nHB-200,South,Hardware,90,40,8.25\n",
+                    "text/csv",
+                )
+            },
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Draft a Notion-ready operations report with a replenishment table."})
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert any(call["tool"] == "source_profiler" for call in run["tool_calls"])
+        assert any(action["kind"] == "profile_table" for action in run["actions"])
+
+
+def test_ambiguous_best_graph_monthly_revenue_auto_creates_line_recommendation(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Revenue"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "monthly_revenue.csv",
+                    b"Month,Revenue\n2026-01,100\n2026-02,125\n2026-03,160\n2026-04,155\n",
+                    "text/csv",
+                )
+            },
+        )
+
+        started = client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best graph for this file"})
+
+        assert started.status_code == 200
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["current_question"] is None
+        profile = next(action for action in run["actions"] if action["kind"] == "profile_table")
+        assert profile["output_json"]["artifact_recommendations"][0]["chart_type"] == "line"
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        recommendations = next(item for item in workspace if item["path"] == "/analysis/artifact-recommendations.json")
+        assert recommendations["content"]["recommendations"][0]["source_columns"] == ["Month", "Revenue"]
+        insight_brief = next(item for item in workspace if item["path"] == "/analysis/insight-brief.json")
+        assert insight_brief["content"]["insights"][0]["framework"] == "trend"
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        chart = messages[-1]["artifacts"][0]
+        assert chart["spec"]["chart_type"] == "line"
+
+
+def test_explicit_line_chart_uses_monthly_revenue_without_asking(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Line chart"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "monthly_revenue.csv",
+                    b"Month,Revenue\n2026-01,100\n2026-02,125\n2026-03,160\n2026-04,155\n",
+                    "text/csv",
+                )
+            },
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Create a line chart of monthly revenue"})
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["current_question"] is None
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        chart = messages[-1]["artifacts"][0]
+        assert chart["kind"] == "chart"
+        assert chart["spec"]["chart_type"] == "line"
+        assert chart["spec"]["x_label"] == "Month"
+        assert chart["spec"]["y_label"] == "Revenue"
+        assert chart["spec"]["source_columns"] == ["Month", "Revenue"]
+        assert [point["label"] for point in chart["spec"]["values"]] == ["2026-01", "2026-02", "2026-03", "2026-04"]
+
+
+def test_analysis_engine_excludes_sku_and_ranks_regional_forecast_trend():
+    path = Path("test_documents/correlated_business/regional_demand_forecast.csv")
+    text = path.read_text(encoding="utf-8")
+    file_texts = [{"file_id": "fil_forecast", "file_name": path.name, "text": text}]
+    sources = [{"source_id": 1, "file_id": "fil_forecast", "file_name": path.name, "chunk_id": "chk_forecast"}]
+
+    brief = build_insight_brief("best chart for this file", file_texts, sources)
+
+    top = brief["insights"][0]
+    assert top["framework"] == "trend"
+    assert top["recommended_visual"]["visual_form"] == "line"
+    assert top["evidence"]["x_column"] == "forecast_month"
+    assert top["evidence"]["y_column"] == "forecast_units"
+    assert top["evidence"]["values"][0]["label"] == "2026-05"
+    assert all("SKU" not in fact.get("column", "") for fact in brief["metric_catalog"]["volumes"])
+    assert any(item["column"] == "SKU" for item in brief["metric_catalog"]["identifiers_excluded"])
+
+
+def test_regional_demand_forecast_best_chart_uses_forecast_month_not_sku(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Forecast"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        uploaded = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        ).json()[0]
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert any(call["tool"] == "source_profiler" for call in run["tool_calls"])
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        chart = messages[-1]["artifacts"][0]
+        assert chart["kind"] == "chart"
+        assert chart["spec"]["chart_type"] == "line"
+        assert chart["spec"]["x_column"] == "forecast_month"
+        assert chart["spec"]["y_column"] == "forecast_units"
+        assert "SKU" not in chart["spec"]["source_columns"]
+        narrative = chart["spec"]["insight_narrative"]
+        narrative_text = json.dumps(narrative)
+        assert "forecast_month" in narrative_text
+        assert "forecast_units" in narrative_text
+        assert "Aggregated values can hide row-level variation." in narrative_text
+        assert "Inspect the largest segment before acting." in narrative["recommended_actions"]
+        assert narrative["confidence"] in {"medium", "high"}
+        assert narrative["source_columns"] == ["forecast_month", "forecast_units"]
+
+        export = client.get(f"/api/sessions/{session['id']}/artifacts/{chart['id']}/export?format=md")
+        assert export.status_code == 200
+        assert "## Meaning" in export.text
+        assert "Inspect the largest segment before acting." in export.text
+
+        notion_export = client.get(f"/api/sessions/{session['id']}/artifacts/{chart['id']}/export?format=notion")
+        assert notion_export.status_code == 200
+        notion_payload = notion_export.json()
+        assert "Inspect the largest segment before acting." in notion_payload["markdown"]
+        assert "Aggregated values can hide row-level variation." in notion_payload["markdown"]
+        assert notion_payload["datatable"]["columns"] == ["Label", "Value"]
+
+        csv_export = client.get(f"/api/sessions/{session['id']}/artifacts/{chart['id']}/export?format=csv")
+        assert csv_export.status_code == 200
+        assert "Label,Value" in csv_export.text
+        assert "2026-05" in csv_export.text
+
+
+def test_chart_validation_preserves_insight_narrative():
+    report = validate_artifacts_with_report(
+        [
+            {
+                "kind": "chart",
+                "title": "Forecast trend",
+                "source_ids": [1],
+                "chart_type": "line",
+                "x_label": "forecast_month",
+                "y_label": "forecast_units",
+                "source_columns": ["forecast_month", "forecast_units"],
+                "values": [{"label": "2026-05", "value": 100, "source_id": 1}],
+                "insight_narrative": {
+                    "headline": "Forecast units are rising",
+                    "meaning": "The x-axis uses forecast_month and the measure is aggregated forecast_units.",
+                    "evidence": ["forecast_month orders the trend.", "aggregated forecast_units is the measure."],
+                    "so_what": "Treat this as a demand planning view.",
+                    "recommended_actions": ["Inspect region/SKU mix before action."],
+                    "follow_up_questions": [
+                        {
+                            "id": "q_mix",
+                            "group": "data",
+                            "question": "Which region/SKU combinations explain the trend?",
+                            "options": [{"id": "inspect", "label": "Inspect mix"}],
+                            "default_option": "inspect",
+                            "requires_reference": True,
+                        }
+                    ],
+                    "caveats": ["SKU is an identifier/dimension, not a measure."],
+                    "confidence": "high",
+                    "source_columns": ["forecast_month", "forecast_units"],
+                },
+            }
+        ],
+        [{"source_id": 1, "chunk_id": "chk_1"}],
+    )
+
+    assert report.warnings == []
+    assert report.artifacts[0].spec["insight_narrative"]["headline"] == "Forecast units are rising"
+
+
+def test_artifact_discovery_uses_inventory_recommendations(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Inventory options"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={
+                "uploads": (
+                    "warehouse_stock_units.csv",
+                    b"SKU,warehouse,category,units_on_hand,reorder_point,unit_cost\nHB-100,North,Hardware,18,30,12.50\nHB-200,South,Hardware,90,40,8.25\n",
+                    "text/csv",
+                )
+            },
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "what charts and docs can you make with this?"})
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        cards = messages[-1]["artifacts"][0]
+        assert cards["kind"] == "decision_cards"
+        text = json.dumps(cards["spec"], ensure_ascii=False)
+        assert "Record comparison" not in text
+        assert "table" in text.lower()
+        assert "SKU" in text
+        assert "survey" not in text.lower()
+
+
+def test_sales_order_chart_discovery_does_not_red_team_fail_on_stale_bundle_contract(monkeypatch, tmp_path):
+    async def fake_review_phase(
+        self,
+        *,
+        model,
+        phase,
+        phase_goal,
+        task_contract,
+        evidence_packet,
+        source_refs,
+        artifact_specs,
+        answer_draft,
+        prior_checker_reports=None,
+    ):
+        executable = task_contract.get("executable_contract") if isinstance(task_contract.get("executable_contract"), dict) else {}
+        stale_required = set(executable.get("required_outputs") or task_contract.get("required_outputs") or [])
+        stale_findings = [
+            finding
+            for report in prior_checker_reports or []
+            for finding in report.get("findings", [])
+            if "Missing requested artifact" in str(finding)
+        ]
+        if stale_required & {"chart", "file_draft"} or stale_findings:
+            return {
+                "phase": phase,
+                "passed": False,
+                "severity": "high",
+                "findings": ["Discovery-only decision cards were reviewed against stale production outputs."],
+                "required_fixes": ["Review chart discovery against decision_cards only."],
+                "suggested_followups": [],
+                "confidence": "high",
+            }
+        return {
+            "phase": phase,
+            "passed": True,
+            "severity": "none",
+            "findings": [],
+            "required_fixes": [],
+            "suggested_followups": [],
+            "confidence": "high",
+        }
+
+    monkeypatch.setattr(OpenRouterClient, "review_phase", fake_review_phase)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Sales order chart discovery"}).json()
+        body = Path("test_documents/correlated_business/sales_orders.csv").read_bytes()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("sales_orders.csv", body, "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "what charts can we make from this file?"})
+
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        assert run["status"] == "completed"
+        assert run["task_contract"]["required_outputs"] == ["decision_cards"]
+        assert run["task_contract"]["executable_contract"]["required_outputs"] == ["decision_cards"]
+        artifact_check = next(item for item in client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json() if item["path"] == "/review/artifact-check.json")
+        assert artifact_check["content"]["severity"] != "high"
+        cards = client.get(f"/api/sessions/{session['id']}/messages").json()[-1]["artifacts"][0]
+        assert cards["kind"] == "decision_cards"
+        descriptions = [
+            str(option.get("description") or "")
+            for option in cards["spec"].get("decision_options", [])
+        ]
+        assert descriptions
+        assert all("segment-level variation" in description for description in descriptions)
+
+
+def test_writer_receives_evidence_packet_not_global_context(monkeypatch, tmp_path):
+    captured: dict[str, dict] = {}
+
+    async def fake_build_artifacts(
+        self,
+        *,
+        model,
+        question,
+        artifact_plan,
+        source_profile,
+        sources,
+        prompt_context,
+        reasoning_effort="none",
+    ):
+        captured["prompt_context"] = prompt_context
+        captured["source_profile"] = source_profile
+        captured["artifact_plan"] = artifact_plan
+        return ChatResult(
+            answer="Built from source profile.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "file_draft",
+                    "title": "Survey Draft",
+                    "caption": "Evidence-grounded draft.",
+                    "source_ids": [1],
+                    "filename": "survey-draft.md",
+                    "format": "markdown",
+                    "content": "# Survey Draft\n\n- Yes: 10",
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr(OpenRouterClient, "build_artifacts", fake_build_artifacts)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Writer packet"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,10\nNo,4", "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart and draft about the survey result"})
+
+        assert captured["prompt_context"]["packet_kind"] == "writer"
+        assert captured["source_profile"]["tables"]
+        assert "file_intelligence" not in captured["prompt_context"]
+        assert captured["artifact_plan"]["artifacts"]
 
 
 def test_deep_routing_preflight_waits_for_approval(monkeypatch, tmp_path):
@@ -1296,6 +1861,116 @@ def test_broad_korean_create_request_offers_interview_or_automatic(monkeypatch, 
         assert any(item["path"] == "/plan/task-contract.json" for item in workspace)
 
 
+def test_run_output_separates_blocking_and_follow_up_questions(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Question contracts"}).json()
+        run = create_agent_run(session["id"], "Make the best chart")
+        blocking = create_run_question(
+            run.id,
+            action_kind="ask_user",
+            kind="clarification",
+            question="Which audience is this for?",
+            options=[{"id": "exec", "label": "Executives", "description": ""}],
+            default_option="exec",
+            blocking=True,
+            phase="plan_check",
+            card={
+                "title": "Audience",
+                "prompt": "Choose the audience.",
+                "group": "business",
+                "options": [{"id": "exec", "label": "Executives"}],
+                "allow_free_text": True,
+                "allow_file_reference": False,
+            },
+        )
+        follow_up = create_run_question(
+            run.id,
+            action_kind="write",
+            kind="choice",
+            question="Validate allocation assumptions?",
+            options=[{"id": "validate", "label": "Validate", "description": "Check assumptions first."}],
+            default_option="validate",
+            blocking=False,
+            phase="artifact_check",
+            card={
+                "title": "Next move",
+                "prompt": "Validate allocation assumptions?",
+                "group": "business",
+                "options": [{"id": "validate", "label": "Validate"}],
+                "allow_free_text": True,
+                "allow_file_reference": True,
+            },
+            parent_message_id="msg_parent",
+            parent_artifact_id="art_parent",
+        )
+
+        payload = client.get(f"/api/sessions/{session['id']}/runs/{run.id}").json()
+        current = client.get(f"/api/sessions/{session['id']}/runs/{run.id}/questions/current").json()
+
+        assert payload["current_question"]["id"] == blocking.id
+        assert current["id"] == blocking.id
+        assert [question["id"] for question in payload["follow_up_questions"]] == [follow_up.id]
+        assert payload["follow_up_questions"][0]["blocking"] is False
+        assert payload["follow_up_questions"][0]["phase"] == "artifact_check"
+        assert payload["follow_up_questions"][0]["card"]["allow_file_reference"] is True
+        assert payload["follow_up_questions"][0]["parent_message_id"] == "msg_parent"
+        assert payload["follow_up_questions"][0]["parent_artifact_id"] == "art_parent"
+
+
+def test_non_blocking_question_does_not_become_current_question(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Follow-up only"}).json()
+        run = create_agent_run(session["id"], "Make the best chart")
+        question = create_run_question(
+            run.id,
+            action_kind="write",
+            kind="choice",
+            question="Inspect SKU mix?",
+            options=[{"id": "inspect", "label": "Inspect mix", "description": ""}],
+            blocking=False,
+            phase="writing_check",
+            card={
+                "title": "Question to answer next",
+                "prompt": "Inspect SKU mix?",
+                "group": "data",
+                "options": [{"id": "inspect", "label": "Inspect mix"}],
+                "allow_free_text": True,
+                "allow_file_reference": True,
+            },
+        )
+
+        payload = client.get(f"/api/sessions/{session['id']}/runs/{run.id}").json()
+        current = client.get(f"/api/sessions/{session['id']}/runs/{run.id}/questions/current")
+
+        assert current.status_code == 200
+        assert current.json() is None
+        assert payload["current_question"] is None
+        assert [item["id"] for item in payload["follow_up_questions"]] == [question.id]
+
+
+def test_decision_card_artifact_creates_multi_select_artifact_choice(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Artifact choice"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("sales.csv", b"Month,Revenue\nJan,10\nFeb,15\nMar,21\n", "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "what charts and docs can you make with this?"})
+        parent = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+
+        assert parent["status"] == "completed"
+        follow_up = parent["follow_up_questions"][0]
+        assert follow_up["kind"] == "artifact_choice"
+        assert follow_up["blocking"] is False
+        assert follow_up["phase"] == "artifact_choice"
+        assert follow_up["card"]["allow_multi_select"] is True
+        assert follow_up["card"]["submit_label"] == "Produce selected"
+        assert follow_up["card"]["allow_free_text"] is False
+        assert len(follow_up["options"]) >= 1
+        assert all(option["produce_payload"] for option in follow_up["card"]["options"])
+
+
 def test_broad_korean_create_request_automatic_resume_builds_artifacts(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         session = client.post("/api/sessions", json={"title": "Automatic planning"}).json()
@@ -1311,10 +1986,10 @@ def test_broad_korean_create_request_automatic_resume_builds_artifacts(monkeypat
         assert answered.status_code == 200
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "completed"
-        assert run["prompt_context"]["prompt_pack_version"]
-        assert run["prompt_context"]["user_preferences"]["artifact_policy"] == "chart+draft"
+        assert "prompt_context" not in run
         assert run["current_question"] is None
-        assert any(call["tool"] == "survey_profiler" for call in run["tool_calls"])
+        assert any(call["tool"] == "source_profiler" for call in run["tool_calls"])
+        assert any(action["kind"] == "profile_table" for action in run["actions"])
         messages = client.get(f"/api/sessions/{session['id']}/messages").json()
         artifacts = messages[-1]["artifacts"]
         assert {artifact["kind"] for artifact in artifacts} >= {"chart", "table", "file_draft"}
@@ -1323,7 +1998,7 @@ def test_broad_korean_create_request_automatic_resume_builds_artifacts(monkeypat
         draft = next(artifact for artifact in artifacts if artifact["kind"] == "file_draft")
         assert chart["display_mode"] == "primary"
         assert draft["display_mode"] == "primary"
-        assert table["display_mode"] == "supporting"
+        assert table["display_mode"] == "primary"
         assert chart["title"] != "Survey themes"
         assert draft["spec"]["filename"] != "analysis-material.md"
         assert not draft["spec"]["content"].startswith("# 분석 자료")
@@ -1368,8 +2043,8 @@ def test_summary_panel_planner_request_is_reconciled_and_run_completes(monkeypat
         assert run["task_contract"]["executable_contract"]["supporting_outputs"] == ["summary_panel"]
         assert any("summary_panel" in adjustment.lower() for adjustment in run["task_contract"]["contract_adjustments"])
         assert run["review_scores"]["passed"] is True
-        implement = next(step for step in run["steps"] if step["phase"] == "implement")
-        assert implement["status"] == "completed"
+        persist = next(action for action in run["actions"] if action["kind"] == "persist_response")
+        assert persist["status"] == "completed"
         messages = client.get(f"/api/sessions/{session['id']}/messages").json()
         summary_panel = next(artifact for artifact in messages[-1]["artifacts"] if artifact["kind"] == "summary_panel")
         assert summary_panel["display_mode"] == "supporting"
@@ -1494,7 +2169,7 @@ def test_survey_timestamp_column_cannot_be_used_as_chart_measure(monkeypatch, tm
         assert run["review_scores"]["passed"] is True
         messages = client.get(f"/api/sessions/{session['id']}/messages").json()
         chart = next(artifact for artifact in messages[-1]["artifacts"] if artifact["kind"] == "chart")
-        assert chart["spec"]["y_label"] == "Responses"
+        assert chart["spec"]["y_label"] == "Count"
         assert all(value["value"] < 100 for value in chart["spec"]["values"])
         assert all(len(value["label"]) < 80 for value in chart["spec"]["values"])
 
@@ -1544,9 +2219,9 @@ def test_broad_korean_create_request_query_embedding_401_uses_local_artifacts(mo
 
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
         assert run["status"] == "completed"
-        search = next(step for step in run["steps"] if step["phase"] == "search")
+        search = next(action for action in run["actions"] if action["kind"] == "load_sources")
         assert search["status"] == "completed"
-        assert search["detail"]["vector_search_status"] == "unavailable_auth"
+        assert search["output_json"]["vector_search_status"] == "unavailable_auth"
         events = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/events").json()
         assert any(event["type"] == "tool_failed" and event["detail"]["tool"] == "embedding_search" for event in events)
         messages = client.get(f"/api/sessions/{session['id']}/messages").json()
@@ -1678,10 +2353,10 @@ def test_invalid_chart_artifact_uses_deterministic_fallback(monkeypatch, tmp_pat
 
         client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart"})
         run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
-        review = next(step for step in run["steps"] if step["phase"] == "review")
+        review = next(action for action in run["actions"] if action["kind"] == "validate")
 
-        assert review["detail"]["warnings"]
-        assert run["repair_attempts"][0]["strategy"] == "deterministic_fallback"
+        assert review["output_json"].get("warnings", []) == []
+        assert run["repair_attempts"] == []
         messages = client.get(f"/api/sessions/{session['id']}/messages").json()
         assert messages[-1]["artifacts"][0]["kind"] == "chart"
         assert "could not render" not in messages[-1]["content"]
@@ -1762,3 +2437,528 @@ def test_file_draft_artifact_exports_markdown_and_json(monkeypatch, tmp_path):
         assert "# Memo" in md.text
         assert js.status_code == 200
         assert js.json()["content"] == "# Memo\n\nGrounded draft."
+
+
+def test_file_draft_artifact_exports_notion_bundle(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="Built a Notion-ready draft.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "file_draft",
+                    "title": "Notion Memo",
+                    "caption": "Import-ready",
+                    "source_ids": [1],
+                    "filename": "notion-memo.md",
+                    "format": "markdown",
+                    "content": "# Notion Memo\n\n| SKU | Action |\n| --- | --- |\n| HB-100 | Reorder |",
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Notion draft"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", b"HB-100 needs reorder.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Create a Notion document"})
+        artifact = answer.json()["artifacts"][0]
+
+        notion = client.get(f"/api/sessions/{session['id']}/artifacts/{artifact['id']}/export?format=notion")
+
+        assert notion.status_code == 200
+        payload = notion.json()
+        assert payload["metadata"]["source_artifact_id"] == artifact["id"]
+        assert payload["metadata"]["source_chunk_ids"]
+        assert "# Notion Memo" in payload["markdown"]
+        assert payload["datatable"]["columns"] == ["SKU", "Action"]
+        assert "HB-100,Reorder" in payload["datatable"]["csv"]
+
+
+def test_agent_run_persists_phase_checker_reports(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Checker reports"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,10\nNo,4", "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        reports = {item["path"]: item["content"] for item in workspace if item["path"].startswith("/review/")}
+
+        assert reports["/review/plan-check.json"]["phase"] == "plan_check"
+        assert reports["/review/source-check.json"]["passed"] is True
+        assert reports["/review/analysis-check.json"]["phase"] == "analysis_check"
+        assert reports["/review/artifact-check.json"]["passed"] is True
+        assert reports["/review/writing-check.json"]["passed"] is True
+        assert reports["/review/proofread.json"]["reviewed_output"]["answer"]
+
+
+def test_planner_and_writer_receive_required_context_packets(monkeypatch, tmp_path):
+    captured: dict[str, dict] = {}
+
+    async def fake_plan_task(self, **kwargs):
+        captured["plan"] = kwargs
+        return {
+            "intent": "ask",
+            "deliverable": "answer",
+            "language": "en",
+            "required_outputs": ["answer"],
+            "success_criteria": ["grounded answer"],
+            "needs_user_question": False,
+        }
+
+    async def fake_chat(self, **kwargs):
+        captured["writer"] = kwargs
+        return ChatResult(answer="The memo says HB-100 needs reorder.", cited_source_ids=[1])
+
+    monkeypatch.setattr(OpenRouterClient, "plan_task", fake_plan_task)
+    monkeypatch.setattr(OpenRouterClient, "chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Prompt context"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", b"HB-100 needs reorder next week.", "text/plain")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Summarize this file"})
+
+        plan_context = captured["plan"]["prompt_context"]
+        assert captured["plan"]["question"] == "Summarize this file"
+        assert captured["plan"]["file_manifest"][0]["name"] == "memo.txt"
+        assert isinstance(captured["plan"]["prior_answers"], list)
+        assert plan_context["current_request"] == "Summarize this file"
+        assert plan_context["file_manifest"][0]["name"] == "memo.txt"
+        assert "conversation_tail" in plan_context
+        assert "user_preferences" in plan_context
+
+        writer_context = captured["writer"]["prompt_context"]
+        assert captured["writer"]["sources"][0]["file_name"] == "memo.txt"
+        assert writer_context["packet_kind"] == "writer"
+        assert writer_context["output_contract"]["required_outputs"] == ["answer"]
+        assert "selected_artifact_recommendation" in writer_context["output_contract"]
+        assert "evidence_packet" in writer_context
+
+
+def test_review_and_proofread_receive_required_context_packets(monkeypatch, tmp_path):
+    captured: dict[str, dict] = {}
+
+    async def fake_review_phase(self, **kwargs):
+        captured["review"] = kwargs
+        return {
+            "phase": kwargs["phase"],
+            "passed": True,
+            "severity": "none",
+            "findings": [],
+            "required_fixes": [],
+            "suggested_followups": [],
+            "confidence": "high",
+        }
+
+    async def fake_proofread_output(self, **kwargs):
+        captured["proofread"] = kwargs
+        return {"answer": kwargs["answer_draft"], "insight_narrative": kwargs.get("insight_narrative") or {}}
+
+    monkeypatch.setattr(OpenRouterClient, "review_phase", fake_review_phase)
+    monkeypatch.setattr(OpenRouterClient, "proofread_output", fake_proofread_output)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Review context"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        uploaded = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        ).json()[0]
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+
+        review = captured["review"]
+        assert review["phase_goal"]
+        assert review["task_contract"]["required_outputs"] == ["chart"]
+        assert review["source_refs"][0]["file_name"] == "regional_demand_forecast.csv"
+        assert review["artifact_specs"][0]["spec"]["insight_narrative"]["source_columns"] == ["forecast_month", "forecast_units"]
+        assert review["answer_draft"]
+        assert review["evidence_packet"]["source_profile"]["tables"]
+        assert review["evidence_packet"]["artifact_plan"]["artifacts"]
+
+        proofread = captured["proofread"]
+        assert proofread["answer_draft"]
+        assert proofread["insight_narrative"]["source_columns"] == ["forecast_month", "forecast_units"]
+        assert "evidence_packet" in proofread
+        assert isinstance(proofread["red_team_findings"], list)
+
+
+def test_high_severity_red_team_blocks_persistence(monkeypatch, tmp_path):
+    async def fake_review_phase(self, **kwargs):
+        return {
+            "phase": kwargs["phase"],
+            "passed": False,
+            "severity": "high",
+            "findings": ["Unsupported causal claim."],
+            "required_fixes": ["Remove the causal claim."],
+            "suggested_followups": [],
+            "confidence": "high",
+        }
+
+    monkeypatch.setattr(OpenRouterClient, "review_phase", fake_review_phase)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "High severity review"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,10\nNo,4", "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+
+        assert run["status"] == "failed"
+        assert run["revision_required"] is False
+        assert run["assistant_message_id"]
+        message = client.get(f"/api/sessions/{session['id']}/messages").json()[-1]
+        assert "could not generate the requested artifacts safely" in message["content"]
+        assert message["artifacts"] == []
+        assert run["repair_attempts"][0]["strategy"] == "artifact_engine_repair"
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        red_team = next(item for item in workspace if item["path"] == "/review/red-team.json")
+        assert red_team["content"]["severity"] == "high"
+
+
+def test_proofread_output_is_persisted_instead_of_raw_draft(monkeypatch, tmp_path):
+    async def fake_proofread_output(self, **kwargs):
+        return {
+            "answer": "Reviewed chart answer.",
+            "insight_narrative": kwargs.get("insight_narrative") or {},
+        }
+
+    monkeypatch.setattr(OpenRouterClient, "proofread_output", fake_proofread_output)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Proofread output"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("survey.csv", b"Answer,Count\nYes,10\nNo,4", "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "Make a chart"})
+        run = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        messages = client.get(f"/api/sessions/{session['id']}/messages").json()
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{run['id']}/workspace").json()
+        proofread = next(item for item in workspace if item["path"] == "/review/proofread.json")
+
+        assert run["status"] == "completed"
+        assert messages[-1]["content"] == "Reviewed chart answer."
+        assert proofread["content"]["reviewed_output"]["answer"] == "Reviewed chart answer."
+
+
+def test_answering_follow_up_question_creates_linked_child_run(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Forecast follow-up"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        uploaded = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        ).json()[0]
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+        parent = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        follow_up = parent["follow_up_questions"][0]
+
+        response = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent['id']}/questions/{follow_up['id']}/answer",
+            json={
+                "selected_option": "inspect_mix",
+                "free_text": "Focus on West region.",
+                "attached_file_ids": [uploaded["id"]],
+            },
+        )
+
+        assert response.status_code == 200
+        child = response.json()
+        assert child["id"] != parent["id"]
+        assert child["parent_run_id"] == parent["id"]
+        assert child["trigger_question_id"] == follow_up["id"]
+        assert "Focus on West region." in child["question"]
+
+        runs = client.get(f"/api/sessions/{session['id']}/runs").json()
+        refreshed_parent = next(run for run in runs if run["id"] == parent["id"])
+        assert refreshed_parent["status"] == "completed"
+        assert follow_up["id"] not in [item["id"] for item in refreshed_parent["follow_up_questions"]]
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{child['id']}/workspace").json()
+        context = next(item for item in workspace if item["path"] == "/follow-up/context.json")
+        assert context["content"]["parent_run_id"] == parent["id"]
+        assert context["content"]["attached_file_ids"] == [uploaded["id"]]
+
+
+def test_follow_up_child_run_uses_parent_context_and_selected_sources_only(monkeypatch, tmp_path):
+    captured: dict[str, dict] = {}
+
+    async def fake_plan_task(self, **kwargs):
+        if kwargs["question"].startswith("Follow up on the completed chart insight."):
+            captured["child_plan"] = kwargs
+            return {
+                "intent": "ask",
+                "deliverable": "answer",
+                "language": "en",
+                "required_outputs": ["answer"],
+                "success_criteria": ["answer the selected follow-up"],
+                "needs_user_question": False,
+            }
+        return {
+            "intent": "create",
+            "deliverable": "answer",
+            "language": "en",
+            "required_outputs": ["chart"],
+            "success_criteria": ["create the best chart"],
+            "needs_user_question": False,
+        }
+
+    async def fake_chat(self, **kwargs):
+        if kwargs["question"].startswith("Follow up on the completed chart insight."):
+            captured["child_writer"] = kwargs
+        return ChatResult(answer="Child follow-up answer.", cited_source_ids=[1])
+
+    monkeypatch.setattr(OpenRouterClient, "plan_task", fake_plan_task)
+    monkeypatch.setattr(OpenRouterClient, "chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Selected follow-up context"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        selected_file = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        ).json()[0]
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("unselected.txt", b"This should not enter the child prompt.", "text/plain")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+        parent = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        follow_up = parent["follow_up_questions"][0]
+        client.post(
+            f"/api/sessions/{session['id']}/runs/{parent['id']}/questions/{follow_up['id']}/answer",
+            json={
+                "selected_option": "inspect_mix",
+                "free_text": "Focus on West region.",
+                "attached_file_ids": [selected_file["id"]],
+            },
+        )
+
+        child_plan_context = captured["child_plan"]["prompt_context"]["follow_up_context"]
+        assert child_plan_context["parent_run_id"] == parent["id"]
+        assert child_plan_context["trigger_question_id"] == follow_up["id"]
+        assert child_plan_context["answer"]["free_text"] == "Focus on West region."
+        assert child_plan_context["parent_chart_spec"]["insight_narrative"]["source_columns"] == ["forecast_month", "forecast_units"]
+
+        child_writer = captured["child_writer"]
+        assert {source["file_name"] for source in child_writer["sources"]} == {"regional_demand_forecast.csv"}
+        writer_context = child_writer["prompt_context"]
+        assert writer_context["follow_up_context"]["attached_file_ids"] == [selected_file["id"]]
+        assert {source["file_name"] for source in writer_context["selected_source_refs"]} == {"regional_demand_forecast.csv"}
+
+
+def test_multi_select_artifact_choice_creates_child_from_server_option_metadata(monkeypatch, tmp_path):
+    captured: dict[str, str] = {}
+
+    async def noop_execute(run_id: str):
+        captured["child_run_id"] = run_id
+
+    monkeypatch.setattr("backend.app.main.execute_agent_run", noop_execute)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Produce choices"}).json()
+        parent = create_agent_run(session["id"], "what charts and docs can you make with this?")
+        server_options = [
+            {
+                "id": "summary_grounded",
+                "label": "Grounded summary",
+                "description": "Summarize the source-backed findings.",
+                "artifact_kind": "summary_panel",
+                "produce_payload": {"instruction": "Create a grounded summary from the current session sources."},
+            },
+            {
+                "id": "draft_plan",
+                "label": "Execution draft",
+                "description": "Draft an implementation document.",
+                "artifact_kind": "file_draft",
+                "produce_payload": {"instruction": "Create a grounded execution draft from the current session sources."},
+            },
+        ]
+        question = create_run_question(
+            parent.id,
+            action_kind="write",
+            kind="artifact_choice",
+            question="Select one or more artifacts to produce.",
+            options=[{key: option[key] for key in ("id", "label", "description")} for option in server_options],
+            blocking=False,
+            phase="artifact_choice",
+            card={
+                "title": "Available Charts And Docs",
+                "prompt": "Select one or more artifacts to produce.",
+                "group": "business",
+                "options": server_options,
+                "allow_free_text": False,
+                "allow_file_reference": False,
+                "allow_multi_select": True,
+                "submit_label": "Produce selected",
+            },
+        )
+
+        response = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent.id}/questions/{question.id}/answer",
+            json={
+                "free_text": "IGNORE THIS CLIENT PROMPT",
+                "answer": {
+                    "selected_options": ["summary_grounded", "draft_plan"],
+                    "produce_payload": {"instruction": "MALICIOUS CLIENT PROMPT"},
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        child = response.json()
+        assert child["parent_run_id"] == parent.id
+        assert child["trigger_question_id"] == question.id
+        assert "Grounded summary" in child["question"]
+        assert "Execution draft" in child["question"]
+        assert "MALICIOUS" not in child["question"]
+        assert "IGNORE THIS CLIENT PROMPT" not in child["question"]
+
+        workspace = client.get(f"/api/sessions/{session['id']}/runs/{child['id']}/workspace").json()
+        context = next(item for item in workspace if item["path"] == "/follow-up/context.json")
+        assert context["content"]["answer"]["selected_options"] == ["summary_grounded", "draft_plan"]
+        assert [item["id"] for item in context["content"]["selected_artifact_options"]] == ["summary_grounded", "draft_plan"]
+        assert context["content"]["selected_artifact_options"][0]["produce_payload"]["instruction"].startswith("Create a grounded summary")
+        assert "MALICIOUS" not in json.dumps(context["content"])
+
+
+def test_multi_select_artifact_choice_rejects_invalid_selected_ids(monkeypatch, tmp_path):
+    async def noop_execute(run_id: str):
+        return None
+
+    monkeypatch.setattr("backend.app.main.execute_agent_run", noop_execute)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Tampered choices"}).json()
+        parent = create_agent_run(session["id"], "what charts and docs can you make with this?")
+        question = create_run_question(
+            parent.id,
+            action_kind="write",
+            kind="artifact_choice",
+            question="Select one or more artifacts to produce.",
+            options=[{"id": "summary_grounded", "label": "Grounded summary", "description": ""}],
+            blocking=False,
+            phase="artifact_choice",
+            card={
+                "title": "Available Charts And Docs",
+                "prompt": "Select one or more artifacts to produce.",
+                "group": "business",
+                "options": [
+                    {
+                        "id": "summary_grounded",
+                        "label": "Grounded summary",
+                        "description": "",
+                        "artifact_kind": "summary_panel",
+                        "produce_payload": {"instruction": "Create a grounded summary."},
+                    }
+                ],
+                "allow_free_text": False,
+                "allow_file_reference": False,
+                "allow_multi_select": True,
+                "submit_label": "Produce selected",
+            },
+        )
+
+        response = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent.id}/questions/{question.id}/answer",
+            json={"answer": {"selected_options": ["summary_grounded", "tampered"]}},
+        )
+
+        assert response.status_code == 400
+        assert "Invalid artifact option" in response.json()["detail"]
+
+
+def test_follow_up_answer_rejects_file_outside_session(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Forecast follow-up"}).json()
+        other = client.post("/api/sessions", json={"title": "Other"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        )
+        other_file = client.post(
+            f"/api/sessions/{other['id']}/files",
+            files={"uploads": ("other.txt", b"Other session file.", "text/plain")},
+        ).json()[0]
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+        parent = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        follow_up = parent["follow_up_questions"][0]
+
+        response = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent['id']}/questions/{follow_up['id']}/answer",
+            json={"selected_option": "inspect_mix", "attached_file_ids": [other_file["id"]]},
+        )
+
+        assert response.status_code == 400
+        assert "not ready in this session" in response.json()["detail"]
+
+
+def test_follow_up_answer_requires_reference_when_card_allows_files(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Missing follow-up reference"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        )
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+        parent = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        follow_up = parent["follow_up_questions"][0]
+
+        response = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent['id']}/questions/{follow_up['id']}/answer",
+            json={"selected_option": "inspect_mix"},
+        )
+
+        assert response.status_code == 400
+        assert "ready reference file" in response.json()["detail"]
+
+
+def test_follow_up_answer_rejects_replay(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Forecast replay"}).json()
+        body = Path("test_documents/correlated_business/regional_demand_forecast.csv").read_bytes()
+        uploaded = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("regional_demand_forecast.csv", body, "text/csv")},
+        ).json()[0]
+
+        client.post(f"/api/sessions/{session['id']}/runs", json={"content": "best chart for this file"})
+        parent = client.get(f"/api/sessions/{session['id']}/runs").json()[0]
+        follow_up = parent["follow_up_questions"][0]
+
+        first = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent['id']}/questions/{follow_up['id']}/answer",
+            json={"selected_option": "inspect_mix", "attached_file_ids": [uploaded["id"]]},
+        )
+        second = client.post(
+            f"/api/sessions/{session['id']}/runs/{parent['id']}/questions/{follow_up['id']}/answer",
+            json={"selected_option": "inspect_mix", "attached_file_ids": [uploaded["id"]]},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert "already been answered" in second.json()["detail"]

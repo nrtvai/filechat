@@ -28,6 +28,7 @@ class Principal:
     edition: Edition
     auth_test_mode: bool
     auth_mode: str
+    mode_switcher_enabled: bool = False
 
     @property
     def enterprise_enabled(self) -> bool:
@@ -45,6 +46,7 @@ class Principal:
             "manage_provider_keys": can_manage_settings,
             "export_logs": not self.enterprise_enabled or self.role == "owner",
             "use_admin_console": self.enterprise_enabled and can_manage_settings,
+            "switch_test_mode": self.mode_switcher_enabled,
         }
 
 
@@ -58,6 +60,7 @@ def _role(value: str | None, default: Role) -> Role:
 
 
 def current_principal(
+    x_filechat_test_edition: str | None = Header(default=None, alias="X-FileChat-Test-Edition"),
     x_filechat_test_role: str | None = Header(default=None, alias="X-FileChat-Test-Role"),
     x_filechat_user_role: str | None = Header(default=None, alias="X-FileChat-User-Role"),
     x_filechat_user_id: str | None = Header(default=None, alias="X-FileChat-User-Id"),
@@ -66,6 +69,35 @@ def current_principal(
 ) -> Principal:
     settings = get_settings()
     organization_id = (x_filechat_org_id or "org_single").strip() or "org_single"
+    mode_switcher_enabled = settings.filechat_mode_switcher_enabled
+
+    if mode_switcher_enabled and x_filechat_test_edition:
+        edition = x_filechat_test_edition.strip().lower()
+        if edition == "community":
+            return Principal(
+                user_id="usr_single",
+                display_name="Local user",
+                email="local@filechat.dev",
+                role="owner",
+                organization_id="org_single",
+                edition="community",
+                auth_test_mode=True,
+                auth_mode="local_mode_switcher",
+                mode_switcher_enabled=True,
+            )
+        if edition == "enterprise":
+            role = _role(x_filechat_test_role, "admin")
+            return Principal(
+                user_id=f"usr_test_{role}",
+                display_name=f"Test {role}",
+                email=f"{role}@filechat.test",
+                role=role,
+                organization_id=organization_id,
+                edition="enterprise",
+                auth_test_mode=True,
+                auth_mode="local_mode_switcher",
+                mode_switcher_enabled=True,
+            )
 
     if settings.filechat_edition == "community":
         return Principal(
@@ -77,6 +109,7 @@ def current_principal(
             edition="community",
             auth_test_mode=False,
             auth_mode="single_user",
+            mode_switcher_enabled=mode_switcher_enabled,
         )
 
     if settings.filechat_auth_test_mode:
@@ -90,6 +123,7 @@ def current_principal(
             edition="enterprise",
             auth_test_mode=True,
             auth_mode="test_impersonation",
+            mode_switcher_enabled=mode_switcher_enabled,
         )
 
     if not settings.filechat_trusted_auth_headers:
@@ -102,6 +136,7 @@ def current_principal(
             edition="enterprise",
             auth_test_mode=False,
             auth_mode="auth_required",
+            mode_switcher_enabled=mode_switcher_enabled,
         )
 
     role = _role(x_filechat_user_role, "member")
@@ -115,6 +150,7 @@ def current_principal(
         edition="enterprise",
         auth_test_mode=False,
         auth_mode="trusted_header",
+        mode_switcher_enabled=mode_switcher_enabled,
     )
 
 

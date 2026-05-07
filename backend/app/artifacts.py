@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from .models import ArtifactKind
+from .models import ArtifactKind, InsightNarrative
 
 
 ALLOWED_ARTIFACT_KINDS: set[str] = {"mermaid", "chart", "table", "decision_cards", "comparison", "summary_panel", "file_draft"}
@@ -22,6 +22,13 @@ ALLOWED_JSON_RENDER_TYPES: set[str] = {
     "ActionButton",
     "MiniChart",
     "Timeline",
+    "WaterfallChart",
+    "HeatmapMatrix",
+    "ProgressBars",
+    "FunnelChart",
+    "TreemapChart",
+    "MekkoChart",
+    "BubbleChart",
 }
 
 
@@ -80,6 +87,36 @@ class JsonRenderElement(BaseModel):
                 for key in ("date", "description", "status", "sourceChunkId"):
                     if item.get(key) is not None and not isinstance(item.get(key), str):
                         raise ValueError(f"Timeline.items.{key} must be a string")
+        elif self.type in {"WaterfallChart", "FunnelChart", "TreemapChart", "MekkoChart"}:
+            _require_value_items(props, self.type)
+        elif self.type == "ProgressBars":
+            values = props.get("values")
+            if not isinstance(values, list) or not values:
+                raise ValueError("ProgressBars.values must be a non-empty array")
+            for item in values:
+                if not isinstance(item, dict) or not isinstance(item.get("label"), str):
+                    raise ValueError("ProgressBars.values must contain label objects")
+                if not _finite_number(item.get("actual")) or not _finite_number(item.get("target")):
+                    raise ValueError("ProgressBars values require actual and target numbers")
+        elif self.type == "HeatmapMatrix":
+            rows = props.get("rows")
+            if not isinstance(rows, list) or not rows:
+                raise ValueError("HeatmapMatrix.rows must be a non-empty array")
+            for row in rows:
+                if not isinstance(row, dict) or not isinstance(row.get("label"), str) or not isinstance(row.get("cells"), list):
+                    raise ValueError("HeatmapMatrix.rows must contain label/cells objects")
+                for cell in row.get("cells", []):
+                    if not isinstance(cell, dict) or not isinstance(cell.get("column"), str) or not _finite_number(cell.get("value")):
+                        raise ValueError("HeatmapMatrix cells require column/value")
+        elif self.type == "BubbleChart":
+            values = props.get("values")
+            if not isinstance(values, list) or not values:
+                raise ValueError("BubbleChart.values must be a non-empty array")
+            for item in values:
+                if not isinstance(item, dict) or not isinstance(item.get("label"), str):
+                    raise ValueError("BubbleChart.values must contain labels")
+                if not _finite_number(item.get("x")) or not _finite_number(item.get("y")):
+                    raise ValueError("BubbleChart values require x/y numbers")
         return self
 
 
@@ -120,6 +157,12 @@ class RawArtifact(BaseModel):
     sections: list[dict[str, Any]] = Field(default_factory=list)
     x_label: str = ""
     y_label: str = ""
+    x_column: str = ""
+    y_column: str = ""
+    source_columns: list[str] = Field(default_factory=list)
+    source_facts: list[str] = Field(default_factory=list)
+    insight_narrative: dict[str, Any] | None = None
+    decision_options: list[dict[str, Any]] = Field(default_factory=list)
     filename: str = ""
     format: Literal["markdown", "json"] = "markdown"
     content: Any = ""
@@ -155,6 +198,15 @@ def _require_string_list(props: dict[str, Any], key: str, component: str) -> Non
     value = props.get(key)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{component}.{key} must be an array of strings")
+
+
+def _require_value_items(props: dict[str, Any], component: str) -> None:
+    values = props.get("values")
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"{component}.values must be a non-empty array")
+    for item in values:
+        if not isinstance(item, dict) or not isinstance(item.get("label"), str) or not _finite_number(item.get("value")):
+            raise ValueError(f"{component}.values must contain label/value objects")
 
 
 def _finite_number(value: Any) -> bool:
@@ -228,12 +280,23 @@ def _chart_spec(raw: RawArtifact) -> dict[str, Any]:
         values.append(point)
     if not values:
         raise ValueError("Chart artifact requires at least one value")
-    return {
+    spec = {
         "chart_type": raw.chart_type,
         "values": values,
         "x_label": raw.x_label.strip() or "Category",
         "y_label": raw.y_label.strip() or "Value",
     }
+    if raw.x_column.strip():
+        spec["x_column"] = raw.x_column.strip()
+    if raw.y_column.strip():
+        spec["y_column"] = raw.y_column.strip()
+    if raw.source_columns:
+        spec["source_columns"] = [str(column) for column in raw.source_columns if str(column).strip()]
+    if raw.source_facts:
+        spec["source_facts"] = [str(fact) for fact in raw.source_facts if str(fact).strip()]
+    if raw.insight_narrative is not None:
+        spec["insight_narrative"] = InsightNarrative.model_validate(raw.insight_narrative).model_dump()
+    return spec
 
 
 def _draft_spec(raw: RawArtifact) -> dict[str, Any]:
@@ -355,6 +418,32 @@ def _summary_panel_spec(raw: RawArtifact) -> dict[str, Any]:
     return {"root": "card", "elements": elements}
 
 
+def _decision_options_spec(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in options[:8]:
+        if not isinstance(item, dict):
+            continue
+        option_id = str(item.get("id") or "").strip()
+        label = str(item.get("label") or "").strip()
+        if not option_id or not label:
+            continue
+        artifact_kind = str(item.get("artifact_kind") or "summary_panel").strip()
+        if artifact_kind not in {"chart", "table", "summary_panel", "file_draft", "comparison", "mermaid"}:
+            artifact_kind = "summary_panel"
+        option: dict[str, Any] = {
+            "id": option_id,
+            "label": label,
+            "description": str(item.get("description") or ""),
+            "artifact_kind": artifact_kind,
+            "produce_payload": item.get("produce_payload") if isinstance(item.get("produce_payload"), dict) else {},
+        }
+        chart_type = str(item.get("chart_type") or "").strip()
+        if chart_type:
+            option["chart_type"] = chart_type
+        normalized.append(option)
+    return normalized
+
+
 def validate_artifacts(raw_artifacts: list[Any], sources: list[dict[str, Any]], default_source_ids: list[int] | None = None) -> list[ValidatedArtifact]:
     return validate_artifacts_with_report(raw_artifacts, sources, default_source_ids=default_source_ids).artifacts
 
@@ -390,6 +479,8 @@ def validate_artifacts_with_report(raw_artifacts: list[Any], sources: list[dict[
                     raise ValueError(f"{raw.kind} artifact requires jsonRenderSpec")
                 spec_model = JsonRenderSpec.model_validate(_normalize_json_render_spec(raw.jsonRenderSpec))
                 spec = spec_model.model_dump(exclude_none=True)
+                if raw.kind == "decision_cards":
+                    spec["decision_options"] = _decision_options_spec(raw.decision_options)
 
             validated.append(
                 ValidatedArtifact(

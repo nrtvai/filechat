@@ -18,7 +18,9 @@ from .agent_runs import (
     list_workspace_items,
     mark_run_awaiting_approval,
     mark_run_needs_setup,
+    set_action,
     update_run_preflight,
+    upsert_workspace_item,
 )
 from .agent_runtime import ensure_provider_ready, verify_openrouter_provider
 from .auth import Principal, current_principal, require_log_exporter, require_settings_admin
@@ -56,6 +58,7 @@ from .models import (
     WikiNodeOut,
     WikiNodePatch,
 )
+from .notion_export import markdown_for_artifact, notion_import_bundle, slugify_filename, table_payload_for_artifact
 from .openrouter import OpenRouterClient
 from .orchestration import build_preflight, model_recommendations
 from .prompt_context import context_profile, patch_context_profile, refresh_session_context, session_context
@@ -87,6 +90,20 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="FileChat API", lifespan=lifespan)
+
+
+def _mark_provider_setup_failure(run_id: str, provider: dict) -> None:
+    message = str(provider.get("message") or "OpenRouter provider is not verified.")
+    set_action(
+        run_id,
+        "verify_provider",
+        "failed",
+        input_summary="Checking OpenRouter provider status",
+        output_summary="OpenRouter provider needs setup",
+        error_summary=message,
+        output_json=provider,
+    )
+    mark_run_needs_setup(run_id, message)
 
 app.add_middleware(
     CORSMiddleware,
@@ -132,6 +149,13 @@ def current_user_out(principal: Principal) -> CurrentUserOut:
         auth_mode=principal.auth_mode,
         capabilities=principal.capabilities,
     )
+
+
+def settings_for_principal(principal: Principal) -> dict:
+    payload = current_app_settings()
+    payload["edition"] = principal.edition
+    payload["settings_scope"] = "organization" if principal.enterprise_enabled else "single_user"
+    return payload
 
 
 def ensure_session(session_id: str, principal: Principal) -> None:
@@ -357,25 +381,25 @@ def get_current_user(principal: Principal = Depends(current_principal)):
 
 
 @app.get("/api/settings", response_model=SettingsOut)
-def get_app_settings():
-    return current_app_settings()
+def get_app_settings(principal: Principal = Depends(current_principal)):
+    return settings_for_principal(principal)
 
 
 @app.patch("/api/settings", response_model=SettingsOut)
 def patch_settings(patch: SettingsPatch, principal: Principal = Depends(settings_admin)):
     apply_settings_patch(patch, principal)
-    return current_app_settings()
+    return settings_for_principal(principal)
 
 
 @app.get("/api/admin/settings", response_model=SettingsOut)
-def get_admin_settings(_: Principal = Depends(settings_admin)):
-    return current_app_settings()
+def get_admin_settings(principal: Principal = Depends(settings_admin)):
+    return settings_for_principal(principal)
 
 
 @app.patch("/api/admin/settings", response_model=SettingsOut)
 def patch_admin_settings(patch: SettingsPatch, principal: Principal = Depends(settings_admin)):
     apply_settings_patch(patch, principal)
-    return current_app_settings()
+    return settings_for_principal(principal)
 
 
 @app.delete("/api/admin/settings/openrouter-key", response_model=SettingsOut)
@@ -390,7 +414,7 @@ def clear_openrouter_key(principal: Principal = Depends(settings_admin)):
         target_type="settings",
         metadata={"changed": ["openrouter_api_key"]},
     )
-    return current_app_settings()
+    return settings_for_principal(principal)
 
 
 def apply_settings_patch(patch: SettingsPatch, principal: Principal) -> None:
@@ -510,9 +534,9 @@ def update_meta_issue_endpoint(issue_id: str, payload: MetaIssueUpdate, principa
 
 
 @app.post("/api/settings/openrouter/verify", response_model=SettingsOut)
-async def verify_openrouter_settings(_: Principal = Depends(settings_admin)):
+async def verify_openrouter_settings(principal: Principal = Depends(settings_admin)):
     await verify_openrouter_provider()
-    return current_app_settings()
+    return settings_for_principal(principal)
 
 
 @app.get("/api/context/profile", response_model=ContextProfileOut)
@@ -897,7 +921,10 @@ async def start_agent_run(
     update_run_preflight(run.id, **preflight)
     provider = await ensure_provider_ready()
     if provider.get("status") != "verified":
-        mark_run_needs_setup(run.id, str(provider.get("message") or "OpenRouter provider is not verified."))
+        if any(output in {"chart", "table", "file_draft", "summary_panel", "decision_cards"} for output in preflight["execution_plan"].get("requested_outputs", [])):
+            background.add_task(execute_agent_run, run.id)
+            return get_agent_run(run.id) or run
+        _mark_provider_setup_failure(run.id, provider)
         return get_agent_run(run.id) or run
     if preflight["execution_plan"].get("requires_approval"):
         mark_run_awaiting_approval(run.id)
@@ -937,7 +964,7 @@ async def approve_run_plan(
         return run
     provider = await ensure_provider_ready()
     if provider.get("status") != "verified":
-        mark_run_needs_setup(run_id, str(provider.get("message") or "OpenRouter provider is not verified."))
+        _mark_provider_setup_failure(run_id, provider)
         return get_agent_run(run_id) or run
     background.add_task(execute_agent_run, run_id)
     return get_agent_run(run_id) or run
@@ -961,7 +988,7 @@ async def retry_run(
     update_run_preflight(next_run.id, **preflight)
     provider = await ensure_provider_ready()
     if provider.get("status") != "verified":
-        mark_run_needs_setup(next_run.id, str(provider.get("message") or "OpenRouter provider is not verified."))
+        _mark_provider_setup_failure(next_run.id, provider)
         return get_agent_run(next_run.id) or next_run
     background.add_task(execute_agent_run, next_run.id)
     return get_agent_run(next_run.id) or next_run
@@ -980,7 +1007,7 @@ async def resume_run(
         raise HTTPException(status_code=404, detail="Agent run not found")
     provider = await ensure_provider_ready()
     if provider.get("status") != "verified":
-        mark_run_needs_setup(run_id, str(provider.get("message") or "OpenRouter provider is not verified."))
+        _mark_provider_setup_failure(run_id, provider)
         return get_agent_run(run_id) or run
     background.add_task(execute_agent_run, run_id)
     return get_agent_run(run_id) or run
@@ -1000,7 +1027,6 @@ def get_run_contract(session_id: str, run_id: str, principal: Principal = Depend
         "agent_actions": run.agent_actions,
         "review_scores": run.review_scores,
         "revision_required": run.revision_required,
-        "prompt_context": run.prompt_context,
     }
 
 
@@ -1011,6 +1037,158 @@ def get_current_run_question(session_id: str, run_id: str, principal: Principal 
     if not run or run.session_id != session_id:
         raise HTTPException(status_code=404, detail="Agent run not found")
     return get_current_question(run_id)
+
+
+def _ready_file_ids_for_session(session_id: str, organization_id: str, file_ids: list[str]) -> list[str]:
+    if not file_ids:
+        return []
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT f.id FROM files f
+            JOIN session_files sf ON sf.file_id = f.id
+            WHERE sf.session_id = ? AND f.organization_id = ? AND f.status = 'ready'
+              AND f.id IN ({','.join('?' for _ in file_ids)})
+            """,
+            (session_id, organization_id, *file_ids),
+        ).fetchall()
+    return [row["id"] for row in rows]
+
+
+def _run_question_state(run_id: str, question_id: str) -> dict[str, object] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, blocking, status FROM agent_run_questions WHERE run_id = ? AND id = ?",
+            (run_id, question_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row["id"], "blocking": bool(row["blocking"]), "status": row["status"]}
+
+
+def _artifact_choice_option_map(question: AgentRunQuestionOut) -> dict[str, dict]:
+    raw_options = question.card.options if isinstance(question.card.options, list) else []
+    options: dict[str, dict] = {}
+    for item in raw_options:
+        if not isinstance(item, dict):
+            continue
+        option_id = str(item.get("id") or "").strip()
+        if option_id:
+            options[option_id] = item
+    if options:
+        return options
+    for item in question.options:
+        option_id = str(item.id or "").strip()
+        if option_id:
+            options[option_id] = item.model_dump()
+    return options
+
+
+def _server_artifact_choice_answer(question: AgentRunQuestionOut, payload: AnswerRunQuestionRequest) -> tuple[dict, list[dict]]:
+    raw_selected = payload.answer.get("selected_options") if isinstance(payload.answer, dict) else None
+    if not isinstance(raw_selected, list) or not raw_selected:
+        raise HTTPException(status_code=400, detail="Select at least one artifact option.")
+    selected_ids: list[str] = []
+    for item in raw_selected:
+        option_id = str(item).strip()
+        if option_id and option_id not in selected_ids:
+            selected_ids.append(option_id)
+    if not selected_ids:
+        raise HTTPException(status_code=400, detail="Select at least one artifact option.")
+    option_map = _artifact_choice_option_map(question)
+    selected_options: list[dict] = []
+    for option_id in selected_ids:
+        option = option_map.get(option_id)
+        if not option:
+            raise HTTPException(status_code=400, detail=f"Invalid artifact option: {option_id}")
+        selected_options.append(
+            {
+                "id": str(option.get("id") or option_id),
+                "label": str(option.get("label") or option_id),
+                "description": str(option.get("description") or ""),
+                "artifact_kind": str(option.get("artifact_kind") or "summary_panel"),
+                "chart_type": str(option.get("chart_type") or ""),
+                "produce_payload": option.get("produce_payload") if isinstance(option.get("produce_payload"), dict) else {},
+            }
+        )
+    return {"selected_options": selected_ids}, selected_options
+
+
+def _follow_up_context(
+    session_id: str,
+    run: AgentRunOut,
+    question_id: str,
+    answer: dict[str, Any],
+    attached_file_ids: list[str],
+    selected_artifact_options: list[dict] | None = None,
+) -> dict[str, Any]:
+    question = next((item for item in run.follow_up_questions if item.id == question_id), None)
+    parent_artifact: dict[str, Any] = {}
+    if question and question.parent_artifact_id:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM artifacts WHERE id = ? AND session_id = ?",
+                (question.parent_artifact_id, session_id),
+            ).fetchone()
+        if row:
+            spec = json_loads(row["spec_json"], {})
+            parent_artifact = {
+                "id": row["id"],
+                "kind": row["kind"],
+                "title": row["title"],
+                "spec": spec,
+                "insight_narrative": spec.get("insight_narrative") if isinstance(spec, dict) else {},
+            }
+    return {
+        "parent_run_id": run.id,
+        "trigger_question_id": question_id,
+        "parent_message_id": question.parent_message_id if question else None,
+        "parent_artifact_id": question.parent_artifact_id if question else None,
+        "question": question.question if question else "",
+        "answer": sanitize_metadata(answer),
+        "attached_file_ids": attached_file_ids,
+        "source_filter_mode": "selected_files" if question and question.card.allow_file_reference else "all_session_sources",
+        "selected_artifact_options": sanitize_metadata(selected_artifact_options or []),
+        "parent_artifact": sanitize_metadata(parent_artifact),
+    }
+
+
+def _child_question_from_follow_up(context: dict[str, Any]) -> str:
+    answer = context.get("answer") if isinstance(context.get("answer"), dict) else {}
+    selected_artifact_options = context.get("selected_artifact_options") if isinstance(context.get("selected_artifact_options"), list) else []
+    if selected_artifact_options:
+        pieces = [
+            "Produce selected artifacts from the current session sources.",
+            f"Question: {context.get('question')}",
+            "Selected artifacts:",
+        ]
+        for option in selected_artifact_options:
+            if not isinstance(option, dict):
+                continue
+            label = str(option.get("label") or option.get("id") or "Artifact").strip()
+            artifact_kind = str(option.get("artifact_kind") or "artifact").replace("_", " ")
+            chart_type = str(option.get("chart_type") or "").strip()
+            kind_label = f"{chart_type} chart" if chart_type else artifact_kind
+            description = str(option.get("description") or "").strip()
+            line = f"- {label} ({kind_label})"
+            if description:
+                line = f"{line}: {description}"
+            pieces.append(line)
+        return "\n".join(pieces)
+    selected = str(answer.get("selected_option") or "").strip()
+    free_text = str(answer.get("free_text") or "").strip()
+    pieces = [
+        "Follow up on the completed chart insight.",
+        f"Question: {context.get('question')}",
+    ]
+    if selected:
+        pieces.append(f"Selected option: {selected}")
+    if free_text:
+        pieces.append(f"Additional context: {free_text}")
+    attached = context.get("attached_file_ids") if isinstance(context.get("attached_file_ids"), list) else []
+    if attached:
+        pieces.append(f"Use only these selected reference file ids where possible: {', '.join(str(item) for item in attached)}")
+    return "\n".join(pieces)
 
 
 @app.post("/api/sessions/{session_id}/runs/{run_id}/questions/{question_id}/answer", response_model=AgentRunOut)
@@ -1026,17 +1204,62 @@ async def answer_current_run_question(
     run = get_agent_run(run_id)
     if not run or run.session_id != session_id:
         raise HTTPException(status_code=404, detail="Agent run not found")
-    answer = dict(payload.answer)
-    if payload.selected_option is not None:
-        answer["selected_option"] = payload.selected_option
-    if payload.free_text is not None:
-        answer["free_text"] = payload.free_text
+    question_state = _run_question_state(run_id, question_id)
+    if not question_state:
+        raise HTTPException(status_code=404, detail="Run question not found")
+    if question_state["status"] != "pending":
+        raise HTTPException(status_code=409, detail="Run question has already been answered.")
+    pending_follow_up = next((item for item in run.follow_up_questions if item.id == question_id), None)
+    selected_artifact_options: list[dict] = []
+    if pending_follow_up and pending_follow_up.kind == "artifact_choice" and pending_follow_up.card.allow_multi_select:
+        answer, selected_artifact_options = _server_artifact_choice_answer(pending_follow_up, payload)
+    else:
+        answer = dict(payload.answer)
+        if payload.selected_option is not None:
+            answer["selected_option"] = payload.selected_option
+        if payload.free_text is not None:
+            answer["free_text"] = payload.free_text
+    if pending_follow_up and pending_follow_up.card.allow_file_reference and not payload.attached_file_ids:
+        raise HTTPException(status_code=400, detail="This follow-up needs at least one ready reference file.")
+    if payload.attached_file_ids:
+        answer["attached_file_ids"] = payload.attached_file_ids
+        ready_ids = _ready_file_ids_for_session(session_id, principal.organization_id, payload.attached_file_ids)
+        if set(ready_ids) != set(payload.attached_file_ids):
+            raise HTTPException(status_code=400, detail="One or more attached files are not ready in this session.")
     answered = answer_run_question(run_id, question_id, answer)
     if not answered:
         raise HTTPException(status_code=404, detail="Run question not found")
+    if not answered.blocking:
+        context = _follow_up_context(
+            session_id,
+            run,
+            question_id,
+            answer,
+            payload.attached_file_ids,
+            selected_artifact_options=selected_artifact_options,
+        )
+        child = create_agent_run(
+            session_id,
+            _child_question_from_follow_up(context),
+            kind="ask",
+            parent_run_id=run_id,
+            trigger_question_id=question_id,
+        )
+        upsert_workspace_item(child.id, path="/follow-up/context.json", kind="follow_up", content=context)
+        preflight = build_preflight(session_id, child.question)
+        update_run_preflight(child.id, **preflight)
+        provider = await ensure_provider_ready()
+        if provider.get("status") != "verified":
+            if selected_artifact_options:
+                background.add_task(execute_agent_run, child.id)
+                return get_agent_run(child.id) or child
+            _mark_provider_setup_failure(child.id, provider)
+            return get_agent_run(child.id) or child
+        background.add_task(execute_agent_run, child.id)
+        return get_agent_run(child.id) or child
     provider = await ensure_provider_ready()
     if provider.get("status") != "verified":
-        mark_run_needs_setup(run_id, str(provider.get("message") or "OpenRouter provider is not verified."))
+        _mark_provider_setup_failure(run_id, provider)
         return get_agent_run(run_id) or run
     background.add_task(execute_agent_run, run_id)
     return get_agent_run(run_id) or run
@@ -1080,7 +1303,7 @@ def list_messages(session_id: str, principal: Principal = Depends(current_princi
 def export_artifact(
     session_id: str,
     artifact_id: str,
-    format: str = Query(default="md", pattern="^(md|json)$"),
+    format: str = Query(default="md", pattern="^(md|json|notion|csv)$"),
     principal: Principal = Depends(current_principal),
 ):
     ensure_session(session_id, principal)
@@ -1093,6 +1316,18 @@ def export_artifact(
         raise HTTPException(status_code=404, detail="Artifact not found")
 
     spec = json_loads(row["spec_json"], {})
+    row_dict = dict(row)
+    row_dict["source_chunk_ids"] = json_loads(row["source_chunk_ids"], [])
+    if format == "csv":
+        table = table_payload_for_artifact(spec)
+        if not table:
+            raise HTTPException(status_code=400, detail="Artifact does not contain exportable table data")
+        filename = slugify_filename(str(row["title"] or "artifact"), ".csv")
+        return Response(
+            content=table["csv"],
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     if format == "json":
         filename = str(spec.get("filename") or f"{row['title'] or 'artifact'}.json")
         if not filename.endswith(".json"):
@@ -1102,30 +1337,17 @@ def export_artifact(
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    if format == "notion":
+        filename = str(spec.get("filename") or f"{row['title'] or 'artifact'}-notion.json")
+        if not filename.endswith(".json"):
+            filename = f"{filename}.json"
+        return Response(
+            content=json.dumps(notion_import_bundle(row_dict, spec), ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
-    if row["kind"] == "file_draft":
-        content = spec.get("content", "")
-        if not isinstance(content, str):
-            content = json.dumps(content, ensure_ascii=False, indent=2)
-        filename = str(spec.get("filename") or "draft.md")
-    elif row["kind"] == "chart":
-        values = spec.get("values") if isinstance(spec, dict) else []
-        lines = [f"# {row['title']}", ""]
-        if row["caption"]:
-            lines.extend([row["caption"], ""])
-        lines.append("| Label | Value |")
-        lines.append("| --- | ---: |")
-        if isinstance(values, list):
-            for item in values:
-                if isinstance(item, dict):
-                    lines.append(f"| {item.get('label', '')} | {item.get('value', '')} |")
-        content = "\n".join(lines)
-        filename = f"{row['title'] or 'chart'}.md"
-    else:
-        content = f"# {row['title']}\n\n{row['caption']}\n"
-        filename = f"{row['title'] or 'artifact'}.md"
-    if not filename.endswith(".md"):
-        filename = f"{filename}.md"
+    content, filename = markdown_for_artifact(row_dict, spec)
     return Response(
         content=content,
         media_type="text/markdown; charset=utf-8",

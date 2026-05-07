@@ -158,6 +158,8 @@ def init_db() -> None:
               session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
               user_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
               assistant_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+              parent_run_id TEXT,
+              trigger_question_id TEXT,
               kind TEXT NOT NULL DEFAULT 'ask',
               status TEXT NOT NULL,
               question TEXT NOT NULL,
@@ -182,34 +184,44 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS agent_runs_session_idx
               ON agent_runs(session_id, created_at);
 
-            CREATE TABLE IF NOT EXISTS agent_run_steps (
+            CREATE TABLE IF NOT EXISTS agent_run_actions (
               id TEXT PRIMARY KEY,
               run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
-              phase TEXT NOT NULL,
               ordinal INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              label TEXT NOT NULL,
               status TEXT NOT NULL,
-              summary TEXT NOT NULL DEFAULT '',
-              detail_json TEXT NOT NULL DEFAULT '{}',
-              error TEXT,
+              input_summary TEXT NOT NULL DEFAULT '',
+              output_summary TEXT NOT NULL DEFAULT '',
+              error_summary TEXT,
+              input_json TEXT NOT NULL DEFAULT '{}',
+              output_json TEXT NOT NULL DEFAULT '{}',
+              validation_json TEXT NOT NULL DEFAULT '{}',
               started_at TEXT,
               completed_at TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
-              UNIQUE (run_id, phase)
+              UNIQUE (run_id, ordinal)
             );
 
-            CREATE INDEX IF NOT EXISTS agent_run_steps_run_idx
-              ON agent_run_steps(run_id, ordinal);
+            CREATE INDEX IF NOT EXISTS agent_run_actions_run_idx
+              ON agent_run_actions(run_id, ordinal);
 
             CREATE TABLE IF NOT EXISTS agent_run_questions (
               id TEXT PRIMARY KEY,
               run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
-              phase TEXT NOT NULL,
+              action_kind TEXT,
+              blocking INTEGER NOT NULL DEFAULT 1,
+              phase TEXT NOT NULL DEFAULT '',
               kind TEXT NOT NULL,
               question TEXT NOT NULL,
               options_json TEXT NOT NULL DEFAULT '[]',
               default_option TEXT,
+              card_json TEXT NOT NULL DEFAULT '{}',
               answer_json TEXT,
+              answer_file_ids_json TEXT NOT NULL DEFAULT '[]',
+              parent_message_id TEXT,
+              parent_artifact_id TEXT,
               status TEXT NOT NULL,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
@@ -425,6 +437,21 @@ def init_db() -> None:
                 "artifact_versions_json": "TEXT NOT NULL DEFAULT '[]'",
                 "repair_attempts_json": "TEXT NOT NULL DEFAULT '[]'",
                 "quality_warnings_json": "TEXT NOT NULL DEFAULT '[]'",
+                "parent_run_id": "TEXT",
+                "trigger_question_id": "TEXT",
+            },
+        )
+        _ensure_columns(
+            conn,
+            "agent_run_questions",
+            {
+                "action_kind": "TEXT",
+                "blocking": "INTEGER NOT NULL DEFAULT 1",
+                "phase": "TEXT NOT NULL DEFAULT ''",
+                "card_json": "TEXT NOT NULL DEFAULT '{}'",
+                "answer_file_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+                "parent_message_id": "TEXT",
+                "parent_artifact_id": "TEXT",
             },
         )
         created = now()

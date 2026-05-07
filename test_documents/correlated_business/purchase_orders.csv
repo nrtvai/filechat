@@ -1,0 +1,65 @@
+purchase_order_id,SKU,supplier,lead_time_days,lead_time_variance_days,units_ordered,expected_arrival,delay_risk,expedite_required
+PO-5001,HB-100,"Han River Bottling",12,5,736,2026-01-19,low,no
+PO-5002,HB-500,"Daegu Beverage Lab",15,5,639,2026-01-22,medium,no
+PO-5003,KT-400,"Incheon Assembly",21,8,302,2026-01-28,high,yes
+PO-5004,SN-300,"Busan Fresh Co",19,3,509,2026-01-26,high,no
+PO-5005,HB-200,"West Pack Foods",19,0,588,2026-01-26,high,no
+PO-5006,SN-700,"Jeju Nutri Foods",8,1,411,2026-01-15,low,no
+PO-5007,CP-250,"Seoul Cold Chain",12,2,378,2026-01-19,low,no
+PO-5008,KT-900,"Incheon Assembly",16,3,297,2026-01-23,medium,no
+PO-5009,HB-100,"Han River Bottling",8,1,828,2026-01-29,low,no
+PO-5010,HB-500,"Daegu Beverage Lab",12,2,717,2026-02-02,low,no
+PO-5011,KT-400,"Incheon Assembly",16,3,336,2026-02-06,medium,no
+PO-5012,SN-300,"Busan Fresh Co",16,0,567,2026-02-06,medium,no
+PO-5013,HB-200,"West Pack Foods",20,1,654,2026-02-10,high,no
+PO-5014,SN-700,"Jeju Nutri Foods",9,2,453,2026-01-30,low,no
+PO-5015,CP-250,"Seoul Cold Chain",13,3,414,2026-02-03,medium,no
+PO-5016,KT-900,"Incheon Assembly",13,0,321,2026-02-03,medium,no
+PO-5017,HB-100,"Han River Bottling",9,2,920,2026-02-13,low,no
+PO-5018,HB-500,"Daegu Beverage Lab",13,3,795,2026-02-17,medium,no
+PO-5019,KT-400,"Incheon Assembly",21,8,370,2026-02-25,high,yes
+PO-5020,SN-300,"Busan Fresh Co",17,1,625,2026-02-21,medium,no
+PO-5021,HB-200,"West Pack Foods",21,2,720,2026-02-25,high,no
+PO-5022,SN-700,"Jeju Nutri Foods",10,3,495,2026-02-14,low,no
+PO-5023,CP-250,"Seoul Cold Chain",10,0,450,2026-02-14,low,no
+PO-5024,KT-900,"Incheon Assembly",14,1,345,2026-02-18,medium,no
+PO-5025,HB-100,"Han River Bottling",12,5,1012,2026-03-02,low,no
+PO-5026,HB-500,"Daegu Beverage Lab",15,5,873,2026-03-05,medium,no
+PO-5027,KT-400,"Incheon Assembly",14,1,404,2026-03-04,medium,no
+PO-5028,SN-300,"Busan Fresh Co",18,2,683,2026-03-08,high,no
+PO-5029,HB-200,"West Pack Foods",22,3,786,2026-03-12,high,no
+PO-5030,SN-700,"Jeju Nutri Foods",7,0,537,2026-02-25,low,no
+PO-5031,CP-250,"Seoul Cold Chain",11,1,486,2026-03-01,low,no
+PO-5032,KT-900,"Incheon Assembly",15,2,369,2026-03-05,medium,no
+PO-5033,HB-100,"Han River Bottling",7,0,736,2026-03-11,low,no
+PO-5034,HB-500,"Daegu Beverage Lab",11,1,639,2026-03-15,low,no
+PO-5035,KT-400,"Incheon Assembly",21,8,302,2026-03-25,high,yes
+PO-5036,SN-300,"Busan Fresh Co",19,3,509,2026-03-23,high,no
+PO-5037,HB-200,"West Pack Foods",19,0,588,2026-03-23,high,no
+PO-5038,SN-700,"Jeju Nutri Foods",8,1,411,2026-03-12,low,no
+PO-5039,CP-250,"Seoul Cold Chain",12,2,378,2026-03-16,low,no
+PO-5040,KT-900,"Incheon Assembly",16,3,297,2026-03-20,medium,no
+PO-5041,HB-100,"Han River Bottling",8,1,828,2026-03-26,low,no
+PO-5042,HB-500,"Daegu Beverage Lab",12,2,717,2026-03-30,low,no
+PO-5043,KT-400,"Incheon Assembly",16,3,336,2026-04-03,medium,no
+PO-5044,SN-300,"Busan Fresh Co",16,0,567,2026-04-03,medium,no
+PO-5045,HB-200,"West Pack Foods",20,1,654,2026-04-07,high,no
+PO-5046,SN-700,"Jeju Nutri Foods",9,2,453,2026-03-27,low,no
+PO-5047,CP-250,"Seoul Cold Chain",13,3,414,2026-03-31,medium,no
+PO-5048,KT-900,"Incheon Assembly",13,0,321,2026-03-31,medium,no
+PO-5049,HB-100,"Han River Bottling",12,5,920,2026-04-13,low,no
+PO-5050,HB-500,"Daegu Beverage Lab",15,5,795,2026-04-16,medium,no
+PO-5051,KT-400,"Incheon Assembly",21,8,370,2026-04-22,high,yes
+PO-5052,SN-300,"Busan Fresh Co",17,1,625,2026-04-18,medium,no
+PO-5053,HB-200,"West Pack Foods",21,2,720,2026-04-22,high,no
+PO-5054,SN-700,"Jeju Nutri Foods",10,3,495,2026-04-11,low,no
+PO-5055,CP-250,"Seoul Cold Chain",10,0,450,2026-04-11,low,no
+PO-5056,KT-900,"Incheon Assembly",14,1,345,2026-04-15,medium,no
+PO-5057,HB-100,"Han River Bottling",10,3,1012,2026-04-25,low,no
+PO-5058,HB-500,"Daegu Beverage Lab",10,0,873,2026-04-25,low,no
+PO-5059,KT-400,"Incheon Assembly",14,1,404,2026-04-29,medium,no
+PO-5060,SN-300,"Busan Fresh Co",18,2,683,2026-05-03,high,no
+PO-5061,HB-200,"West Pack Foods",22,3,786,2026-05-07,high,no
+PO-5062,SN-700,"Jeju Nutri Foods",7,0,537,2026-04-22,low,no
+PO-5063,CP-250,"Seoul Cold Chain",11,1,486,2026-04-26,low,no
+PO-5064,KT-900,"Incheon Assembly",15,2,369,2026-04-30,medium,no

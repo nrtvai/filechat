@@ -21,11 +21,14 @@ class AppSettings(BaseSettings):
     filechat_edition: Edition = Field(default="community", validation_alias="FILECHAT_EDITION")
     filechat_auth_test_mode: bool = Field(default=False, validation_alias="FILECHAT_AUTH_TEST_MODE")
     filechat_trusted_auth_headers: bool = Field(default=False, validation_alias="FILECHAT_TRUSTED_AUTH_HEADERS")
+    filechat_mode_switcher_enabled: bool = Field(default=True, validation_alias="FILECHAT_MODE_SWITCHER_ENABLED")
     filechat_meta_issues_github_enabled: bool = Field(default=False, validation_alias="FILECHAT_META_ISSUES_GITHUB_ENABLED")
     filechat_meta_issues_github_repo: str | None = Field(default=None, validation_alias="FILECHAT_META_ISSUES_GITHUB_REPO")
     filechat_meta_issues_github_token: str | None = Field(default=None, validation_alias="FILECHAT_META_ISSUES_GITHUB_TOKEN")
     filechat_slack_signing_secret: str | None = Field(default=None, validation_alias="FILECHAT_SLACK_SIGNING_SECRET")
     filechat_telegram_webhook_secret: str | None = Field(default=None, validation_alias="FILECHAT_TELEGRAM_WEBHOOK_SECRET")
+    notion_api_key: str | None = Field(default=None, validation_alias="NOTION_API_KEY")
+    notion_parent_page_id: str | None = Field(default=None, validation_alias="NOTION_PARENT_PAGE_ID")
 
     @property
     def resolved_data_dir(self) -> Path:
