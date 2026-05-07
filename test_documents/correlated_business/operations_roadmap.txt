@@ -1,0 +1,6 @@
+2026-05-06: Lock reorder decisions for HB-100, HB-500, SN-300 based on days of cover and regional forecast.
+2026-05-10: Confirm expedited supplier slots for KT-400 campaign kits and qualify a backup assembler.
+2026-05-16: Review inbound HB-500 inventory against South marketplace promotion demand and expiry risk.
+2026-05-20: Reduce HB-200 blanket marketplace discounts if gross margin remains below the 38 percent watch line.
+2026-05-28: Complete Incheon KT-400 arrival and wholesale allocation.
+2026-06-03: Present gross-margin, churn-risk, and stockout-risk review to leadership.

@@ -36,6 +36,32 @@ THEMES: list[tuple[str, tuple[str, ...]]] = [
     ("의사결정/검증", ("판단", "의사결정", "검증", "신뢰", "위험", "불확실", "저작권", "리스크", "정확")),
 ]
 
+SURVEY_CONTEXT_TERMS = ("survey", "form responses", "questionnaire", "응답", "설문", "만족도")
+BUSINESS_CONTEXT_COLUMNS = {
+    "sku",
+    "warehouse",
+    "category",
+    "units_on_hand",
+    "reorder_point",
+    "unit_cost",
+    "expiry_date",
+    "order_id",
+    "channel",
+    "region",
+    "units_sold",
+    "revenue",
+    "discount_rate",
+    "order_date",
+    "supplier",
+    "lead_time_days",
+    "units_ordered",
+    "expected_arrival",
+    "month",
+    "cogs",
+    "gross_margin",
+    "operating_expense",
+}
+
 
 def read_extracted_file_texts(session_id: str) -> list[dict[str, Any]]:
     from .database import connect
@@ -191,13 +217,25 @@ def _subject_from_file_name(file_name: str) -> str:
     return subject or "설문"
 
 
+def _is_survey_context(question: str, table: ParsedTable, profile: list[dict[str, Any]]) -> bool:
+    combined = f"{question} {table.file_name}".lower()
+    if any(term in combined for term in SURVEY_CONTEXT_TERMS):
+        return True
+    columns = {column.lower().strip() for column in table.columns}
+    if columns & BUSINESS_CONTEXT_COLUMNS:
+        return False
+    open_text_columns = [item for item in profile if item["kind"] == "open_text"]
+    categorical_columns = [item for item in profile if item["kind"] == "categorical"]
+    return bool(open_text_columns and categorical_columns)
+
+
 def _slug_filename(subject: str, suffix: str) -> str:
     cleaned = re.sub(r"[^\w가-힣]+", "-", subject, flags=re.UNICODE).strip("-").lower()
     cleaned = re.sub(r"-+", "-", cleaned)
     return f"{cleaned or 'survey'}-{suffix}.md"
 
 
-def _categorical_chart(table: ParsedTable, profile: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any] | None:
+def _categorical_chart(table: ParsedTable, profile: list[dict[str, Any]], source: dict[str, Any], *, survey_context: bool) -> dict[str, Any] | None:
     candidates = [item for item in profile if item["kind"] == "categorical"]
     if not candidates:
         return None
@@ -215,8 +253,8 @@ def _categorical_chart(table: ParsedTable, profile: list[dict[str, Any]], source
         return None
     return {
         "kind": "chart",
-        "title": f"{_subject_from_file_name(table.file_name)}: 응답 분포",
-        "caption": f"Deterministic count by '{column}' from {len(table.rows)} survey row(s).",
+        "title": f"{_subject_from_file_name(table.file_name)}: {'응답 분포' if survey_context else '범주 분포'}",
+        "caption": f"Deterministic count by '{column}' from {len(table.rows)} row(s).",
         "display_mode": "primary",
         "source_ids": [source["source_id"]],
         "source_chunk_ids": [source["chunk_id"]],
@@ -227,7 +265,7 @@ def _categorical_chart(table: ParsedTable, profile: list[dict[str, Any]], source
     }
 
 
-def _numeric_pair_chart(table: ParsedTable, profile: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any] | None:
+def _numeric_pair_chart(table: ParsedTable, profile: list[dict[str, Any]], source: dict[str, Any], *, survey_context: bool) -> dict[str, Any] | None:
     numeric_columns = [item["name"] for item in profile if item["kind"] == "numeric" and not _is_bad_measure_name(item["name"])]
     label_columns = [item["name"] for item in profile if item["kind"] in {"categorical", "open_text"}]
     if not numeric_columns or not label_columns:
@@ -249,7 +287,7 @@ def _numeric_pair_chart(table: ParsedTable, profile: list[dict[str, Any]], sourc
     return {
         "kind": "chart",
         "title": f"{_subject_from_file_name(table.file_name)}: 수치 집계",
-        "caption": f"Deterministic values by '{label_column}' using '{value_column}' from {len(table.rows)} survey row(s).",
+        "caption": f"Deterministic values by '{label_column}' using '{value_column}' from {len(table.rows)} row(s).",
         "display_mode": "primary",
         "source_ids": [source["source_id"]],
         "source_chunk_ids": [source["chunk_id"]],
@@ -316,7 +354,14 @@ def _table_artifact(table: ParsedTable, source: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _analysis_draft(table: ParsedTable, profile: list[dict[str, Any]], source: dict[str, Any], chart: dict[str, Any] | None) -> dict[str, Any]:
+def _analysis_draft(
+    table: ParsedTable,
+    profile: list[dict[str, Any]],
+    source: dict[str, Any],
+    chart: dict[str, Any] | None,
+    *,
+    survey_context: bool,
+) -> dict[str, Any]:
     chart_lines: list[str] = []
     if chart:
         for item in chart.get("values", [])[:8]:
@@ -326,14 +371,31 @@ def _analysis_draft(table: ParsedTable, profile: list[dict[str, Any]], source: d
     subject = _subject_from_file_name(table.file_name)
     filename = _slug_filename(subject, "분석-초안")
     insight_lines = []
-    if chart and "응답 주제 분포" in str(chart.get("title") or ""):
+    if survey_context and chart and "응답 주제 분포" in str(chart.get("title") or ""):
         top_values = [item for item in chart.get("values", []) if isinstance(item, dict)]
         for item in top_values[:5]:
             insight_lines.append(f"- {item.get('label')}: {item.get('value')}건의 응답에서 반복적으로 나타났습니다.")
     elif chart_lines:
-        insight_lines.append("- 아래 분포는 첨부 설문 원자료에서 직접 집계한 값입니다.")
+        insight_lines.append("- 아래 분포는 첨부 원자료에서 직접 집계한 값입니다.")
     else:
-        insight_lines.append("- 정량 집계보다 응답 원문 검토가 필요한 설문 구조입니다.")
+        insight_lines.append("- 정량 집계보다 원자료 행 검토가 필요한 표 구조입니다.")
+    interpretation = [
+        "- 반복 빈도가 높은 주제는 개인의 숙련도 문제보다 업무 흐름과 검수 체계의 병목일 가능성이 큽니다.",
+        "- 단순 자동화 후보와 판단/검증이 필요한 업무를 분리하면 후속 실험 우선순위를 잡기 쉽습니다.",
+    ] if survey_context else [
+        "- 재고, 수요, 비용, 리드타임처럼 같은 키로 연결되는 열을 우선 비교하면 실행 가능한 운영 판단을 만들 수 있습니다.",
+        "- 임계값과 실제 보유량의 차이가 큰 항목은 보충, 할인, 공급사 조정 같은 후속 액션 후보입니다.",
+    ]
+    actions = [
+        "- 상위 주제별 대표 응답을 검토해 실제 병목 업무를 정의합니다.",
+        "- 반복 빈도가 높은 주제부터 자동화/템플릿화 후보로 분리합니다.",
+        "- 의사결정용 공유 자료라면 각 주제별 대표 인용문과 담당 조직 맥락을 보강합니다.",
+    ] if survey_context else [
+        "- 공통 키로 다른 첨부 파일의 관련 데이터를 교차 확인합니다.",
+        "- 재주문점 이하이거나 리드타임이 긴 항목을 우선순위 후보로 표시합니다.",
+        "- Notion 공유용 문서에는 원자료 표와 차트, 후속 확인 질문을 함께 남깁니다.",
+    ]
+    caption = "첨부 설문 데이터를 기반으로 만든 Markdown 초안입니다." if survey_context else "첨부 운영 데이터를 기반으로 만든 Markdown 초안입니다."
     content = "\n".join(
         [
             f"# {subject}: 분석 초안",
@@ -342,7 +404,7 @@ def _analysis_draft(table: ParsedTable, profile: list[dict[str, Any]], source: d
             f"- 파일: {table.file_name}",
             f"- 행 수: {len(table.rows)}",
             f"- 열 수: {len(table.columns)}",
-            f"- 주관식 문항 수: {len(open_text_columns)}",
+            f"- {'주관식 문항 수' if survey_context else '텍스트 열 수'}: {len(open_text_columns)}",
             "",
             "## 핵심 인사이트",
             *insight_lines,
@@ -351,13 +413,10 @@ def _analysis_draft(table: ParsedTable, profile: list[dict[str, Any]], source: d
             *(chart_lines or ["- 수치형/범주형 조합을 찾지 못해 원자료 표를 우선 확인해야 합니다."]),
             "",
             "## 해석",
-            "- 반복 빈도가 높은 주제는 개인의 숙련도 문제보다 업무 흐름과 검수 체계의 병목일 가능성이 큽니다.",
-            "- 단순 자동화 후보와 판단/검증이 필요한 업무를 분리하면 후속 실험 우선순위를 잡기 쉽습니다.",
+            *interpretation,
             "",
             "## 권장 후속 액션",
-            "- 상위 주제별 대표 응답을 검토해 실제 병목 업무를 정의합니다.",
-            "- 반복 빈도가 높은 주제부터 자동화/템플릿화 후보로 분리합니다.",
-            "- 의사결정용 공유 자료라면 각 주제별 대표 인용문과 담당 조직 맥락을 보강합니다.",
+            *actions,
             "",
             "## 방법",
             "- 첨부 파일에서 확인 가능한 값만 사용했습니다.",
@@ -368,7 +427,7 @@ def _analysis_draft(table: ParsedTable, profile: list[dict[str, Any]], source: d
     return {
         "kind": "file_draft",
         "title": f"{subject}: 분석 초안",
-        "caption": "첨부 설문 데이터를 기반으로 만든 Markdown 초안입니다.",
+        "caption": caption,
         "display_mode": "primary",
         "source_ids": [source["source_id"]],
         "source_chunk_ids": [source["chunk_id"]],
@@ -399,6 +458,7 @@ def _evidence_packet(
     source: dict[str, Any],
     chart: dict[str, Any] | None,
     question: str,
+    survey_context: bool,
 ) -> dict[str, Any]:
     subject = _subject_from_file_name(table.file_name)
     theme_counts = chart.get("values", []) if chart and isinstance(chart.get("values"), list) else []
@@ -406,7 +466,9 @@ def _evidence_packet(
     return {
         "recommended_title": f"{subject}: 분석 초안",
         "recommended_filename": _slug_filename(subject, "분석-초안"),
-        "draft_caption": "근거 패킷과 설문 원자료를 바탕으로 작성한 Markdown 분석 초안입니다.",
+        "draft_caption": "근거 패킷과 설문 원자료를 바탕으로 작성한 Markdown 분석 초안입니다."
+        if survey_context
+        else "근거 패킷과 운영 원자료를 바탕으로 작성한 Markdown 분석 초안입니다.",
         "user_request": question,
         "dataset": {
             "file_name": table.file_name,
@@ -414,6 +476,7 @@ def _evidence_packet(
             "row_count": len(table.rows),
             "column_count": len(table.columns),
             "open_text_question_count": sum(1 for item in profile if item["kind"] == "open_text"),
+            "survey_context": survey_context,
             "source_id": source["source_id"],
             "source_chunk_id": source["chunk_id"],
         },
@@ -425,9 +488,13 @@ def _evidence_packet(
         ],
         "caveats": [
             "타임스탬프, 이메일, 식별자는 분석 지표에서 제외했습니다.",
-            "주관식 주제 분류는 응답 텍스트의 반복 키워드와 의미 신호를 기반으로 합니다.",
+            "주관식 주제 분류는 응답 텍스트의 반복 키워드와 의미 신호를 기반으로 합니다."
+            if survey_context
+            else "운영 데이터 초안은 첨부 표 내부의 열과 행만 기반으로 합니다.",
         ],
-        "suggested_sections": ["핵심 요약", "주요 발견", "업무 병목 해석", "권장 액션", "검토할 질문"],
+        "suggested_sections": ["핵심 요약", "주요 발견", "업무 병목 해석", "권장 액션", "검토할 질문"]
+        if survey_context
+        else ["핵심 요약", "운영 신호", "교차 확인 항목", "권장 액션", "Notion 공유 표"],
     }
 
 
@@ -450,23 +517,33 @@ def build_survey_artifacts(question: str, file_texts: list[dict[str, Any]], sour
         source = _source_for_file(table.file_id, sources)
         if not source:
             continue
-        theme_chart = _theme_chart(table, profile, source)
-        chart = _numeric_pair_chart(table, profile, source) or _categorical_chart(table, profile, source) or theme_chart
-        if asks_for_material and theme_chart:
+        survey_context = _is_survey_context(question, table, profile)
+        theme_chart = _theme_chart(table, profile, source) if survey_context else None
+        chart = _numeric_pair_chart(table, profile, source, survey_context=survey_context) or _categorical_chart(
+            table, profile, source, survey_context=survey_context
+        ) or theme_chart
+        if survey_context and asks_for_material and theme_chart:
             chart = theme_chart
         artifacts: list[dict[str, Any]] = []
         if chart and (asks_for_chart or asks_for_material):
             artifacts.append(chart)
         if asks_for_material:
             artifacts.append(_table_artifact(table, source))
-            artifacts.append(_analysis_draft(table, profile, source, chart))
+            artifacts.append(_analysis_draft(table, profile, source, chart, survey_context=survey_context))
         if artifacts:
-            evidence_packet = _evidence_packet(table=table, profile=profile, source=source, chart=chart, question=question)
+            evidence_packet = _evidence_packet(
+                table=table,
+                profile=profile,
+                source=source,
+                chart=chart,
+                question=question,
+                survey_context=survey_context,
+            )
             return SurveyArtifactResult(
                 artifacts=artifacts,
                 summary=f"Parsed {len(table.rows)} row(s) from {table.file_name} and built {len(artifacts)} deterministic artifact(s).",
                 tool_call={
-                    "tool": "survey_profiler",
+                    "tool": "survey_profiler" if survey_context else "structured_table_profiler",
                     "file_id": table.file_id,
                     "file_name": table.file_name,
                     "row_count": len(table.rows),

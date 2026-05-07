@@ -1,0 +1,30 @@
+2026-05-06: Lock reorder decisions for HB-100, HB-500, SN-300 based on days of cover and regional forecast.
+2026-05-10: Confirm expedited supplier slots for KT-400 campaign kits and qualify a backup assembler.
+2026-05-16: Review inbound HB-500 inventory against South marketplace promotion demand and expiry risk.
+2026-05-20: Reduce HB-200 blanket marketplace discounts if gross margin remains below the 38 percent watch line.
+2026-05-28: Complete Incheon KT-400 arrival and wholesale allocation.
+2026-06-03: Present gross-margin, churn-risk, and stockout-risk review to leadership.
+2026-06-22: Extreme-fixture memo week 7 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-07-25: Extreme-fixture memo week 8 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-07-01: Extreme-fixture memo week 9 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-07-04: Extreme-fixture memo week 10 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-07-07: Extreme-fixture memo week 11 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-08-10: Extreme-fixture memo week 12 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-08-13: Extreme-fixture memo week 13 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-08-16: Extreme-fixture memo week 14 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-08-19: Extreme-fixture memo week 15 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-09-22: Extreme-fixture memo week 16 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-09-25: Extreme-fixture memo week 17 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-09-01: Extreme-fixture memo week 18 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-09-04: Extreme-fixture memo week 19 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-10-07: Extreme-fixture memo week 20 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-10-10: Extreme-fixture memo week 21 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-10-13: Extreme-fixture memo week 22 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-10-16: Extreme-fixture memo week 23 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-11-19: Extreme-fixture memo week 24 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-11-22: Extreme-fixture memo week 25 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-11-25: Extreme-fixture memo week 26 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-11-01: Extreme-fixture memo week 27 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-12-04: Extreme-fixture memo week 28 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-12-07: Extreme-fixture memo week 29 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.
+2026-12-10: Extreme-fixture memo week 30 requires reconciling supplier incidents, promotion lift, returns, and regional allocation exceptions.

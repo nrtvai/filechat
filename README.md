@@ -13,8 +13,8 @@ FileChat is also split at the product boundary: Community edition defaults to a 
 - Run model-led but tool-backed workflows for planning, search, analysis, writing, review, and implement.
 - Build safe artifacts such as charts, tables, summary panels, Mermaid diagrams, and exportable file drafts.
 - Profile survey-style CSVs and generate deterministic chart/table outputs before relying on fragile model formatting.
-- Persist runs, review results, prompt context snapshots, repair attempts, and artifact history for debugging.
-- Degrade gracefully when model/provider steps fail by using local structured analysis where possible.
+- Persist runs, action records, review results, redacted evidence packets, repair attempts, and artifact history for debugging.
+- Degrade gracefully when model/provider actions fail by using local structured analysis where possible.
 
 ## Why This Repo Exists
 
@@ -123,6 +123,8 @@ FILECHAT_TELEGRAM_WEBHOOK_SECRET=
 Use `FILECHAT_EDITION=enterprise` with `FILECHAT_AUTH_TEST_MODE=true` to switch between owner, admin, and member roles in the UI without creating real accounts. Production enterprise deployments should keep test mode off and only set `FILECHAT_TRUSTED_AUTH_HEADERS=true` behind a trusted authentication proxy or adapter that strips untrusted inbound role headers.
 
 Set `FILECHAT_EDITION=enterprise` to enable enterprise boundaries. In enterprise mode, members can use sessions and files, admins can manage provider/model settings, and only owners can export audit logs. Set `FILECHAT_AUTH_TEST_MODE=true` in local development to impersonate owner, admin, and member roles without creating real accounts. Audit metadata is append-only and redacted before storage; file security metadata is limited to non-content identifiers such as IDs, hashes, type, size, and status.
+
+The Settings/Admin panels show the active edition and scope, but enterprise mode is still configured by environment variables. If the UI shows Community / single_user, add `FILECHAT_EDITION=enterprise` and `FILECHAT_AUTH_TEST_MODE=true` to `.env`, then restart the backend.
 
 Runtime complaints and internal failures can be captured as sanitized meta issues with `POST /api/meta-issues`; admins can review and triage them under `/api/admin/meta-issues`. GitHub issue creation is off by default and only runs when the `FILECHAT_META_ISSUES_GITHUB_*` settings are present.
 

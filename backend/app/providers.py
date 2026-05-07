@@ -40,6 +40,21 @@ class Provider(Protocol):
     async def write_draft_from_evidence(self, **kwargs: Any) -> ChatResult:
         ...
 
+    async def review_phase(self, **kwargs: Any) -> dict[str, Any]:
+        ...
+
+    async def proofread_output(self, **kwargs: Any) -> dict[str, Any]:
+        ...
+
+    async def plan_artifacts(self, **kwargs: Any) -> dict[str, Any]:
+        ...
+
+    async def build_artifacts(self, **kwargs: Any) -> ChatResult:
+        ...
+
+    async def repair_artifacts(self, **kwargs: Any) -> ChatResult:
+        ...
+
 
 class OpenRouterProvider:
     id = DEFAULT_PROVIDER_ID
@@ -81,6 +96,21 @@ class OpenRouterProvider:
 
     async def write_draft_from_evidence(self, **kwargs: Any) -> ChatResult:
         return await self._client().write_draft_from_evidence(**kwargs)
+
+    async def review_phase(self, **kwargs: Any) -> dict[str, Any]:
+        return await self._client().review_phase(**kwargs)
+
+    async def proofread_output(self, **kwargs: Any) -> dict[str, Any]:
+        return await self._client().proofread_output(**kwargs)
+
+    async def plan_artifacts(self, **kwargs: Any) -> dict[str, Any]:
+        return await self._client().plan_artifacts(**kwargs)
+
+    async def build_artifacts(self, **kwargs: Any) -> ChatResult:
+        return await self._client().build_artifacts(**kwargs)
+
+    async def repair_artifacts(self, **kwargs: Any) -> ChatResult:
+        return await self._client().repair_artifacts(**kwargs)
 
 
 @dataclass

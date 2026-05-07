@@ -40,13 +40,48 @@ export interface Citation {
 
 export type ArtifactKind = "mermaid" | "chart" | "table" | "decision_cards" | "comparison" | "summary_panel" | "file_draft";
 export type ArtifactDisplayMode = "primary" | "supporting";
-export type AgentPhase = "plan" | "search" | "analysis" | "writing" | "review" | "implement";
 export type AgentRunStatus = "queued" | "awaiting_approval" | "awaiting_user_input" | "needs_setup" | "needs_revision" | "running" | "completed" | "completed_with_warning" | "failed";
-export type AgentStepStatus = "pending" | "running" | "completed" | "skipped" | "failed";
+export type AgentActionKind = "verify_provider" | "classify_request" | "plan_task" | "ask_user" | "load_sources" | "rank_sources" | "profile_table" | "build_evidence" | "reason" | "write" | "validate" | "repair" | "persist_response" | "publish_notion";
+export type AgentActionStatus = "running" | "completed" | "failed";
 export type ModelRoutingMode = "auto" | "balanced" | "deep" | "manual";
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-export type AgentQuestionKind = "interview_offer" | "clarification" | "choice" | "missing_context" | "approval";
+export type AgentQuestionKind = "interview_offer" | "clarification" | "choice" | "artifact_choice" | "missing_context" | "approval";
 export type AgentQuestionStatus = "pending" | "answered" | "cancelled";
+export type InsightQuestionGroup = "data" | "business";
+export type ReviewSeverity = "none" | "low" | "medium" | "high";
+export type ReviewConfidence = "low" | "medium" | "high";
+
+export interface InsightNarrativeQuestion {
+  id: string;
+  group: InsightQuestionGroup;
+  question: string;
+  options: Record<string, unknown>[];
+  default_option?: string | null;
+  requires_reference: boolean;
+}
+
+export interface InsightNarrative {
+  headline: string;
+  meaning: string;
+  evidence: string[];
+  so_what: string;
+  recommended_actions: string[];
+  follow_up_questions: InsightNarrativeQuestion[];
+  caveats: string[];
+  confidence: ReviewConfidence;
+  source_columns: string[];
+}
+
+export interface CheckerReport {
+  phase: string;
+  passed: boolean;
+  severity: ReviewSeverity;
+  findings: string[];
+  required_fixes: string[];
+  suggested_followups: string[];
+  reviewed_output?: unknown;
+  confidence: ReviewConfidence;
+}
 
 export interface JsonRenderElement {
   type: string;
@@ -73,15 +108,19 @@ export interface Artifact {
   created_at: string;
 }
 
-export interface AgentRunStep {
+export interface AgentRunAction {
   id: string;
   run_id: string;
-  phase: AgentPhase;
   ordinal: number;
-  status: AgentStepStatus;
-  summary: string;
-  detail: Record<string, unknown>;
-  error?: string | null;
+  kind: AgentActionKind;
+  label: string;
+  status: AgentActionStatus;
+  input_summary: string;
+  output_summary: string;
+  error_summary?: string | null;
+  input_json: Record<string, unknown>;
+  output_json: Record<string, unknown>;
+  validation_json: Record<string, unknown>;
   started_at?: string | null;
   completed_at?: string | null;
   created_at: string;
@@ -94,15 +133,32 @@ export interface AgentQuestionOption {
   description: string;
 }
 
+export interface AgentRunQuestionCard {
+  title: string;
+  prompt: string;
+  group: InsightQuestionGroup | string;
+  options: Record<string, unknown>[];
+  allow_free_text: boolean;
+  allow_file_reference: boolean;
+  allow_multi_select: boolean;
+  submit_label: string;
+}
+
 export interface AgentRunQuestion {
   id: string;
   run_id: string;
-  phase: AgentPhase;
+  action_kind?: AgentActionKind | null;
   kind: AgentQuestionKind;
   question: string;
   options: AgentQuestionOption[];
   default_option?: string | null;
+  blocking: boolean;
+  phase: string;
+  card: AgentRunQuestionCard;
+  parent_message_id?: string | null;
+  parent_artifact_id?: string | null;
   answer?: Record<string, unknown> | null;
+  answer_file_ids: string[];
   status: AgentQuestionStatus;
   created_at: string;
   updated_at: string;
@@ -140,7 +196,6 @@ export interface AgentRun {
   error?: string | null;
   execution_plan: Record<string, unknown>;
   task_contract: Record<string, unknown>;
-  prompt_context: Record<string, unknown>;
   provider_status: Record<string, unknown>;
   agent_actions: Record<string, unknown>[];
   review_scores: Record<string, unknown>;
@@ -151,7 +206,10 @@ export interface AgentRun {
   repair_attempts: Record<string, unknown>[];
   quality_warnings: string[];
   current_question?: AgentRunQuestion | null;
-  steps: AgentRunStep[];
+  follow_up_questions: AgentRunQuestion[];
+  parent_run_id?: string | null;
+  trigger_question_id?: string | null;
+  actions: AgentRunAction[];
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
@@ -214,6 +272,7 @@ export interface CurrentUser {
     manage_provider_keys?: boolean;
     export_logs?: boolean;
     use_admin_console?: boolean;
+    switch_test_mode?: boolean;
   };
 }
 

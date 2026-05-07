@@ -43,6 +43,13 @@ def _keyring_delete() -> bool:
         return False
 
 
+def _normalized_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def get_setting(key: str, default: str | None = None) -> str | None:
     with connect() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -68,20 +75,27 @@ def delete_setting(key: str) -> None:
 
 def get_openrouter_key() -> tuple[str | None, str]:
     settings = get_settings()
-    if settings.openrouter_api_key:
-        return settings.openrouter_api_key, "env"
-    key = _keyring_get()
+    env_key = _normalized_key(settings.openrouter_api_key)
+    if env_key:
+        return env_key, "env"
+    key = _normalized_key(_keyring_get())
     if key:
         return key, "local"
-    fallback = get_setting("openrouter_api_key")
+    fallback = _normalized_key(get_setting("openrouter_api_key"))
     if fallback:
         return fallback, "local"
     return None, "missing"
 
 
 def set_openrouter_key(value: str) -> None:
-    if not _keyring_set(value):
-        set_setting("openrouter_api_key", value)
+    key = _normalized_key(value)
+    if not key:
+        return
+    saved_to_keyring = _keyring_set(key)
+    if saved_to_keyring and _normalized_key(_keyring_get()) == key:
+        delete_setting("openrouter_api_key")
+    else:
+        set_setting("openrouter_api_key", key)
     set_provider_verification("unverified", "Saved key has not been verified yet.")
 
 

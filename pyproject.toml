@@ -1,6 +1,6 @@
 [project]
 name = "filechat"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first document chat workbench with OpenRouter-backed retrieval."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +15,19 @@ dependencies = [
   "openai>=1.57.0",
   "keyring>=25.5.0"
 ]
+
+[project.scripts]
+filechat = "backend.app.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
 
 [project.optional-dependencies]
 dev = [

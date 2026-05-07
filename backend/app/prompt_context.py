@@ -24,6 +24,7 @@ PRODUCT_POLICY = {
         "Use deterministic tools for parsing, counting, validation, citations, and rendering.",
         "Use the model for planning, interpretation, wording, and synthesis.",
         "Do not show raw table previews in the main transcript unless explicitly requested.",
+        "Render roadmap and timeline outputs as JSON-render artifacts, not unsupported native chart types.",
         "Use subject-first localized titles and filenames for created files.",
     ],
 }
@@ -205,6 +206,29 @@ def prompt_pack(name: str, context: dict[str, Any], *, inputs: dict[str, Any] | 
             f"Draft inputs:\n{payload}\n\n"
             "Return JSON with keys: answer, cited_source_ids, draft. draft must contain title, filename, caption, content. "
             "The content must be Markdown, must not start with a generic '# 분석 자료', and must include synthesized insights and next actions."
+        )
+        return system, user
+    if name == "red_team_review":
+        system = (
+            "You are FileChat's skeptical red-team reviewer. Check grounding, unsupported causality, chart-message fit, "
+            "missing caveats, missing next actions, and missing follow-up questions. Return checker report JSON only."
+        )
+        user = (
+            f"Layered prompt context:\n{compact_context}\n\n"
+            f"Review inputs:\n{payload}\n\n"
+            "Return JSON with keys: phase, passed, severity ('none','low','medium','high'), findings, "
+            "required_fixes, suggested_followups, optional reviewed_output, confidence ('low','medium','high')."
+        )
+        return system, user
+    if name == "proofread_editor":
+        system = (
+            "You are FileChat's proofread editor. Revise wording only; do not add claims, facts, numbers, sources, "
+            "causality, recommendations, or caveats that are not already in the draft, insight narrative, or evidence packet. Return JSON only."
+        )
+        user = (
+            f"Layered prompt context:\n{compact_context}\n\n"
+            f"Proofread inputs:\n{payload}\n\n"
+            "Return JSON with keys answer and optional insight_narrative. If no revision is needed, return the original answer."
         )
         return system, user
     system = (

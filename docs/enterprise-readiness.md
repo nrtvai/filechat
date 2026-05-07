@@ -6,6 +6,8 @@ FileChat enterprise readiness is split across small API surfaces so security and
 
 - `DELETE /api/admin/settings/openrouter-key` clears only keys saved by FileChat. `OPENROUTER_API_KEY` remains deployment-owned and cannot be cleared in-app.
 - `GET /api/admin/audit-events` remains owner-only in enterprise mode.
+- Enterprise mode is enabled with environment configuration, not a separate UI store: set `FILECHAT_EDITION=enterprise` and use `FILECHAT_AUTH_TEST_MODE=true` only for local role testing.
+- `FILECHAT_TRUSTED_AUTH_HEADERS=true` is for production only behind a trusted auth adapter that strips untrusted inbound role headers.
 - Audit metadata, meta issue metadata, wiki properties, and bot rejection metadata are sanitized before storage or export.
 - Sensitive file metadata policy allows IDs, hashes, types, sizes, and statuses; filenames, paths, excerpts, content, tokens, and API keys are redacted in security surfaces.
 
