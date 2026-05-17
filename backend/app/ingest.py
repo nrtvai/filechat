@@ -40,10 +40,10 @@ def _markitdown_client():
     return provider_registry().active().ocr_client()
 
 
-def extract_text(path: Path, ext: str) -> str:
+def extract_text(path: Path, ext: str, *, display_name: str | None = None) -> str:
     normalized_ext = ext.lower().lstrip(".")
     if is_spreadsheet_file(normalized_ext):
-        return spreadsheet_mode_summary(path, normalized_ext)
+        return spreadsheet_mode_summary(path, normalized_ext, display_name=display_name)
     if normalized_ext in {"txt", "md"}:
         return path.read_text(encoding="utf-8", errors="ignore")
     try:
@@ -91,7 +91,7 @@ async def process_file(file_id: str, session_id: str | None = None) -> None:
 
     try:
         path = Path(row["path"])
-        text = await asyncio.to_thread(extract_text, path, row["type"].lower())
+        text = await asyncio.to_thread(extract_text, path, row["type"].lower(), display_name=row["name"])
         artifact = get_settings().resolved_data_dir / "artifacts" / f"{file_id}.md"
         artifact.write_text(text, encoding="utf-8")
         chunks = split_chunks(text)

@@ -81,6 +81,65 @@ def test_upload_text_file_reaches_ready_and_answers(monkeypatch, tmp_path):
         assert payload["citations"]
 
 
+def test_filechat_original_smoke_returns_grounded_answer_with_provenance(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Grounded FileChat smoke"}).json()
+        upload = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("warehouse_memo.txt", b"Warehouse Alpha has 42 packed orders ready for dispatch.", "text/plain")},
+        )
+        assert upload.status_code == 200
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "How many packed orders does Warehouse Alpha have ready for dispatch?"},
+        )
+
+        assert answer.status_code == 200
+        payload = answer.json()
+        assert "42" in payload["content"]
+        assert payload["citations"]
+        citation = payload["citations"][0]
+        assert citation["source_label"] == "warehouse_memo.txt"
+        assert citation["location"] == "chunk 1"
+        assert "Warehouse Alpha" in citation["excerpt"]
+
+
+def test_excel_workflow_smoke_reconciles_multiple_csvs_with_row_provenance(monkeypatch, tmp_path):
+    async def fail_provider_setup():
+        raise AssertionError("Excel Workflow Automation should not require provider setup")
+
+    monkeypatch.setattr("backend.app.retrieval.ensure_provider_ready", fail_provider_setup)
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Excel Workflow smoke"}).json()
+        upload = client.post(
+            f"/api/sessions/{session['id']}/files",
+            files=[
+                ("uploads", ("inventory.csv", b"sku,quantity,status\nA-100,10,ok\nB-200,5,ok\n", "text/csv")),
+                ("uploads", ("orders.csv", b"sku,quantity,status\nA-100,8,ok\nC-300,2,backorder\n", "text/csv")),
+            ],
+        )
+        assert upload.status_code == 200
+        files = client.get(f"/api/sessions/{session['id']}/files").json()
+        assert {item["status"] for item in files} == {"ready"}
+
+        answer = client.post(
+            f"/api/sessions/{session['id']}/messages",
+            json={"content": "Excel mode: reconcile these spreadsheets across files by sku and report mismatches."},
+        )
+
+        assert answer.status_code == 200
+        payload = answer.json()
+        assert payload["content"].startswith("Excel Mode reconciliation (local deterministic workflow)")
+        assert "Compared 2 spreadsheet tables on shared key `sku`" in payload["content"]
+        assert "`A-100` differs" in payload["content"]
+        assert "inventory.csv / inventory row 2" in payload["content"]
+        assert "orders.csv / orders row 2" in payload["content"]
+        assert "`B-200` is missing from orders.csv / orders" in payload["content"]
+        assert "`C-300` is missing from inventory.csv / inventory" in payload["content"]
+        assert {citation["source_label"] for citation in payload["citations"]} == {"inventory.csv", "orders.csv"}
+
+
 def test_generic_summary_question_answers_from_ready_file(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         session = client.post("/api/sessions", json={"title": "AI operations memo"}).json()

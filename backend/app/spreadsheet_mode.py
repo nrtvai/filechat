@@ -32,7 +32,7 @@ class WorksheetSummary:
     raw_delimited: str = ""
 
 
-def spreadsheet_mode_summary(path: Path, ext: str) -> str:
+def spreadsheet_mode_summary(path: Path, ext: str, *, display_name: str | None = None) -> str:
     normalized_ext = ext.lower().lstrip(".")
     try:
         if normalized_ext in {"csv", "tsv"}:
@@ -46,7 +46,9 @@ def spreadsheet_mode_summary(path: Path, ext: str) -> str:
     except Exception as exc:  # pragma: no cover - exercised through corrupt workbook integration
         raise SpreadsheetModeError(f"Could not extract spreadsheet summary: {exc}") from exc
 
-    return _render_summary(path.name, worksheets)
+    if display_name and normalized_ext in {"csv", "tsv"} and worksheets:
+        worksheets[0].name = Path(display_name).stem
+    return _render_summary(display_name or path.name, worksheets)
 
 
 def extract_table_text_from_spreadsheet_summary(text: str) -> str:
