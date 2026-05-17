@@ -3,8 +3,38 @@ import { readFileSync } from "node:fs";
 
 test("empty workbench renders", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("FileChat")).toBeVisible();
+  await expect(page.getByText("FileChat", { exact: true })).toBeVisible();
   await expect(page.getByText("Attach files")).toBeVisible();
+});
+
+test("chat-first cold start keeps draft through file attach and sends after indexing", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Attach files" })).toBeEnabled();
+  await page.getByRole("button", { name: "New session" }).click();
+
+  const composer = page.getByLabel("Ask a question about the selected files");
+  await expect(composer).toBeVisible();
+  await expect(composer).toBeEnabled();
+  await expect(page.getByText("No ready sources yet · you can draft while files process")).toBeVisible({ timeout: 15_000 });
+
+  const draft = "Make a chart about the survey result";
+  await composer.fill(draft);
+  await expect(composer).toHaveValue(draft);
+
+  await expect(page.getByRole("button", { name: "Attach files" })).toBeEnabled();
+  await page.setInputFiles("input[type='file']", {
+    name: "customer_survey.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("Answer,Count\nYes,10\nNo,4\nMaybe,2\n")
+  });
+
+  await expect(composer).toHaveValue(draft);
+  await expect(page.getByRole("heading", { name: "1 of 1 files ready" })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: /Ask/ }).click();
+
+  await expect(page.getByRole("button", { name: "Open source for Yes" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".native-chart").getByText("10")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(/\bundefined\b|\bNaN\b|\$NaN|fake citation|synthetic source confidence/i);
 });
 
 test("survey chart request renders grounded artifact and phases", async ({ page }) => {

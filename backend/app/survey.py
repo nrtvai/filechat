@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .spreadsheet_mode import extract_table_text_from_spreadsheet_summary
+
 
 @dataclass
 class ParsedTable:
@@ -106,7 +108,7 @@ def _sniff_delimiter(text: str, file_name: str) -> str:
 
 
 def parse_table(text: str, file_id: str, file_name: str) -> ParsedTable | None:
-    cleaned = text.lstrip("\ufeff").strip()
+    cleaned = extract_table_text_from_spreadsheet_summary(text).lstrip("\ufeff").strip()
     if not cleaned or ("," not in cleaned and "\t" not in cleaned):
         return None
     delimiter = _sniff_delimiter(cleaned, file_name)

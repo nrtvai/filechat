@@ -38,6 +38,7 @@ from .agent_runtime import (
     build_summary_panel_artifact,
     ensure_provider_ready,
     file_manifest,
+    is_instruction_only_draft,
     normalize_task_contract,
     reconcile_task_contract,
     review_contract_result,
@@ -71,6 +72,7 @@ from .artifact_advisor import (
 )
 from .artifacts import ValidatedArtifact, validate_artifacts_with_report
 from .database import connect
+from .excel_workflow import build_excel_workflow_answer
 from .models import CitationOut
 from .openrouter import ChatResult, OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
 from .orchestration import build_preflight, is_broad_create_request
@@ -1160,7 +1162,14 @@ def _answer_from_artifacts(task_contract: dict[str, Any], artifacts: list[dict[s
     return "\n".join(lines)
 
 
+def _artifact_draft_content(artifact: dict[str, Any]) -> str:
+    spec = artifact.get("spec") if isinstance(artifact.get("spec"), dict) else {}
+    return str(artifact.get("content") or spec.get("content") or "")
+
+
 def _replace_draft_artifact(artifacts: list[dict[str, Any]], draft: dict[str, Any]) -> list[dict[str, Any]]:
+    if is_instruction_only_draft(_artifact_draft_content(draft)):
+        return artifacts
     without_draft = [artifact for artifact in artifacts if artifact.get("kind") != "file_draft"]
     chart = [artifact for artifact in without_draft if artifact.get("kind") == "chart"]
     supporting = [artifact for artifact in without_draft if artifact.get("kind") != "chart"]
@@ -1179,8 +1188,84 @@ async def _chat_with_optional_context(chat_kwargs: dict[str, Any]) -> ChatResult
         return await provider.chat(**legacy_kwargs)
 
 
+def _try_excel_workflow_answer(run_id: str, session_id: str, question: str) -> str | None:
+    """Run the separate Excel Workflow lane before model-led FileChat Q&A.
+
+    FileChat Original remains source-grounded document Q&A. Spreadsheet workflow
+    requests are deterministic batch operations over uploaded CSV/XLSX extracts,
+    so they should not be routed through the general chat writer or require a
+    model provider when local spreadsheet data is sufficient.
+    """
+
+    source_packet = load_ready_sources(session_id)
+    sources = [{**item, "source_id": source_id} for source_id, item in enumerate(source_packet.sources, start=1)]
+    workflow = build_excel_workflow_answer(question, source_packet.file_texts, sources)
+    if not workflow:
+        return None
+
+    start_run(run_id)
+    record_run_event(
+        run_id,
+        type="excel_workflow_started",
+        summary="Excel Workflow Automation handled this request separately from FileChat Original Q&A",
+        detail={"question": question, "file_count": len(source_packet.file_texts)},
+    )
+    user_id = insert_message(session_id, "user", question, [])
+    attach_run_messages(run_id, user_message_id=user_id)
+    update_run_kind(run_id, "create")
+    task_contract = {
+        "intent": "excel_workflow",
+        "deliverable": "deterministic spreadsheet reconciliation",
+        "required_outputs": ["excel_workflow_report"],
+        "success_criteria": [
+            "Keep Excel Workflow Automation separate from FileChat Original document Q&A.",
+            "Use only uploaded spreadsheet data.",
+            "Include file/sheet/row provenance and clear mismatch or schema errors.",
+        ],
+        "provider_degraded": False,
+        "local_deterministic": True,
+    }
+    update_run_contract(run_id, task_contract=task_contract, revision_required=False)
+    set_action(
+        run_id,
+        "classify_request",
+        "completed",
+        output_summary="Routed to Excel Workflow Automation lane",
+        output_json={"intent": "excel_workflow", "separate_from_filechat_original": True},
+    )
+    set_action(
+        run_id,
+        "load_sources",
+        "completed",
+        output_summary=f"Loaded {len(sources)} spreadsheet source chunk{'' if len(sources) == 1 else 's'}",
+        output_json={"local_source_count": len(sources), "full_text_file_count": len(source_packet.file_texts)},
+    )
+    set_action(
+        run_id,
+        "profile_table",
+        "completed",
+        output_summary="Ran deterministic multi-spreadsheet reconciliation",
+        output_json=workflow.get("evidence", {}),
+    )
+    assistant_id = insert_message(session_id, "assistant", str(workflow["answer"]), source_packet.unavailable)
+    insert_citations(assistant_id, sources, [int(source_id) for source_id in workflow.get("cited_source_ids", [])])
+    attach_run_messages(run_id, assistant_message_id=assistant_id)
+    set_action(
+        run_id,
+        "persist_response",
+        "completed",
+        output_summary="Saved Excel Workflow Automation result",
+        output_json={"assistant_message_id": assistant_id, "citation_count": len(workflow.get("cited_source_ids", []))},
+    )
+    complete_run(run_id, assistant_message_id=assistant_id)
+    return assistant_id
+
+
 async def answer(session_id: str, question: str) -> str:
     run = create_agent_run(session_id, question)
+    local_excel_message_id = _try_excel_workflow_answer(run.id, session_id, question)
+    if local_excel_message_id:
+        return local_excel_message_id
     message_id = await execute_agent_run(run.id)
     if message_id:
         return message_id

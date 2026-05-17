@@ -11,6 +11,7 @@ from typing import Any
 from .artifacts import ValidatedArtifact, validate_artifacts_with_report
 from .openrouter import ChatResult
 from .providers import Provider, provider_registry
+from .spreadsheet_mode import extract_table_text_from_spreadsheet_summary
 from .usage import UsageInfo
 
 
@@ -431,7 +432,7 @@ class ArtifactEngine:
 
 
 def parse_table(text: str, *, file_id: str, file_name: str) -> dict[str, Any] | None:
-    cleaned = text.lstrip("\ufeff").strip()
+    cleaned = extract_table_text_from_spreadsheet_summary(text).lstrip("\ufeff").strip()
     if not cleaned or ("," not in cleaned and "\t" not in cleaned and ";" not in cleaned):
         return None
     delimiter = _sniff_delimiter(cleaned, file_name)

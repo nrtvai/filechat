@@ -335,13 +335,16 @@ export function ArtifactRenderer({ artifact, citations, onCitationClick, onSelec
 
 function ArtifactExports({ artifact }: { artifact: Artifact }) {
   const hasData = artifactHasTabularData(artifact);
+  const hasOpenDesign = artifact.kind === "file_draft" && typeof artifact.spec.open_design === "object" && artifact.spec.open_design !== null;
   return (
     <div className="artifact-export-actions">
       <button className="artifact-inline-action" type="button" onClick={() => void window.navigator.clipboard?.writeText(insightTextForArtifact(artifact))}>Copy</button>
       <a className="artifact-inline-action" href={api.exportArtifactUrl(artifact.session_id, artifact.id, "md")}>Markdown</a>
+      <a className="artifact-inline-action" href={api.exportArtifactUrl(artifact.session_id, artifact.id, "pdf")}>PDF</a>
       <a className="artifact-inline-action" href={api.exportArtifactUrl(artifact.session_id, artifact.id, "json")}>JSON</a>
       <a className="artifact-inline-action" href={api.exportArtifactUrl(artifact.session_id, artifact.id, "notion")}>Notion</a>
       {hasData && <a className="artifact-inline-action" href={api.exportArtifactUrl(artifact.session_id, artifact.id, "csv")}>CSV</a>}
+      {hasOpenDesign && <a className="artifact-inline-action" href={api.exportArtifactUrl(artifact.session_id, artifact.id, "od")}>Open Design ZIP</a>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FileText, KeyRound, Library, Loader2, MessageSquarePlus, PanelLeft, Paperclip, Search, Send, Settings as SettingsIcon, ShieldCheck, X } from "lucide-react";
 import { api } from "./api";
 import { ArtifactRenderer } from "./artifacts";
@@ -39,6 +39,16 @@ function formatCost(value?: number) {
 
 function formatTokens(value?: number) {
   return `${Math.round(value ?? 0).toLocaleString()} tok`;
+}
+
+function handleFileInputChange(event: ChangeEvent<HTMLInputElement>, upload: (files: File[]) => void | Promise<void>) {
+  const input = event.currentTarget;
+  const selectedFiles = Array.from(input.files ?? []);
+  try {
+    if (selectedFiles.length > 0) void upload(selectedFiles);
+  } finally {
+    input.value = "";
+  }
 }
 
 function statusLabel(file: FileRecord) {
@@ -108,6 +118,7 @@ export function App() {
   const [rightOpen, setRightOpen] = useState(true);
   const [rightTab, setRightTab] = useState<RightTab>("citations");
   const [busy, setBusy] = useState(false);
+  const [activeLoading, setActiveLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [highlightCitationId, setHighlightCitationId] = useState<string | null>(null);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
@@ -116,6 +127,7 @@ export function App() {
 
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
   const readyFiles = files.filter((file) => file.status === "ready");
+  const canAskActiveSession = !activeLoading && readyFiles.length > 0;
   const activeCitations = messages.flatMap((message) => message.citations);
   const activeArtifacts = messages.flatMap((message) => message.artifacts);
   const hasWorkingFiles = files.some((file) => ["queued", "reading", "indexing"].includes(file.status));
@@ -128,18 +140,26 @@ export function App() {
     return next;
   }, []);
 
+  const setActiveSessionError = useCallback((sessionId: string, message: string) => {
+    if (activeSessionIdRef.current === sessionId) setError(message);
+  }, []);
+
   const refreshActive = useCallback(async (sessionId: string) => {
-    const [nextFiles, nextMessages, nextUsage, nextRuns] = await Promise.all([
-      api.files(sessionId),
-      api.messages(sessionId),
-      api.usage(sessionId),
-      api.runs(sessionId).catch(() => [] as AgentRun[]),
-    ]);
-    if (activeSessionIdRef.current !== sessionId) return;
-    setFiles(nextFiles);
-    setMessages(nextMessages);
-    setUsageSummary({ ...emptyUsageSummary, ...nextUsage });
-    setRuns(Array.isArray(nextRuns) ? nextRuns : []);
+    try {
+      const [nextFiles, nextMessages, nextUsage, nextRuns] = await Promise.all([
+        api.files(sessionId),
+        api.messages(sessionId),
+        api.usage(sessionId),
+        api.runs(sessionId).catch(() => [] as AgentRun[]),
+      ]);
+      if (activeSessionIdRef.current !== sessionId) return;
+      setFiles(nextFiles);
+      setMessages(nextMessages);
+      setUsageSummary({ ...emptyUsageSummary, ...nextUsage });
+      setRuns(Array.isArray(nextRuns) ? nextRuns : []);
+    } finally {
+      if (activeSessionIdRef.current === sessionId) setActiveLoading(false);
+    }
   }, []);
 
   const refreshIdentity = useCallback(async () => {
@@ -170,6 +190,7 @@ export function App() {
         if (!mounted) return;
         setContextProfile({ ...defaultContextProfile, ...nextProfile });
         activeSessionIdRef.current = created.id;
+        setActiveLoading(true);
         setActiveSessionId(created.id);
         setFiles([]);
         setMessages([]);
@@ -192,17 +213,17 @@ export function App() {
 
   useEffect(() => {
     if (!activeSessionId) return;
-    refreshActive(activeSessionId).catch((err: Error) => setError(err.message));
-  }, [activeSessionId, refreshActive]);
+    refreshActive(activeSessionId).catch((err: Error) => setActiveSessionError(activeSessionId, err.message));
+  }, [activeSessionId, refreshActive, setActiveSessionError]);
 
   useEffect(() => {
     if (!activeSessionId || (!hasWorkingFiles && !hasWorkingRuns)) return;
     const handle = setInterval(() => {
-      refreshActive(activeSessionId).catch((err: Error) => setError(err.message));
+      refreshActive(activeSessionId).catch((err: Error) => setActiveSessionError(activeSessionId, err.message));
       refreshSessions().catch(() => undefined);
     }, 1400);
     return () => clearInterval(handle);
-  }, [activeSessionId, hasWorkingFiles, hasWorkingRuns, refreshActive, refreshSessions]);
+  }, [activeSessionId, hasWorkingFiles, hasWorkingRuns, refreshActive, refreshSessions, setActiveSessionError]);
 
   const upsertRun = (run: AgentRun) => {
     setRuns((current) => {
@@ -222,7 +243,7 @@ export function App() {
       await refreshSessions();
       setRailMode("files");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
     }
@@ -230,7 +251,7 @@ export function App() {
 
   const ask = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (!activeSessionId || !composer.trim() || readyFiles.length === 0) return;
+    if (!activeSessionId || activeLoading || !composer.trim() || readyFiles.length === 0) return;
     const sessionId = activeSessionId;
     const question = composer.trim();
     setComposer("");
@@ -254,7 +275,7 @@ export function App() {
       await refreshSessions();
       setRightTab("runs");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Question failed");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Question failed");
       await refreshActive(sessionId).catch(() => undefined);
     } finally {
       setBusy(false);
@@ -264,6 +285,7 @@ export function App() {
   const createSession = async () => {
     const created = await api.createSession();
     activeSessionIdRef.current = created.id;
+    setActiveLoading(true);
     setActiveSessionId(created.id);
     setFiles([]);
     setMessages([]);
@@ -274,7 +296,12 @@ export function App() {
 
   const selectSession = (sessionId: string) => {
     activeSessionIdRef.current = sessionId;
+    setActiveLoading(true);
     setActiveSessionId(sessionId);
+    setFiles([]);
+    setMessages([]);
+    setRuns([]);
+    setUsageSummary(emptyUsageSummary);
   };
 
   const detachFile = async (fileId: string) => {
@@ -286,7 +313,7 @@ export function App() {
       await refreshActive(sessionId);
       await refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove file from context");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Could not remove file from context");
     }
   };
 
@@ -299,7 +326,7 @@ export function App() {
       await refreshActive(sessionId);
       await refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not retry indexing");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Could not retry indexing");
     }
   };
 
@@ -323,7 +350,7 @@ export function App() {
       upsertRun(run);
       await refreshActive(sessionId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not approve agent plan");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Could not approve agent plan");
     }
   };
 
@@ -337,7 +364,7 @@ export function App() {
       await refreshActive(sessionId);
       setRightTab("runs");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not retry agent run");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Could not retry agent run");
     }
   };
 
@@ -358,7 +385,7 @@ export function App() {
       await refreshActive(sessionId);
       setRightTab("runs");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not answer planning question");
+      setActiveSessionError(sessionId, err instanceof Error ? err.message : "Could not answer planning question");
     }
   };
 
@@ -437,11 +464,12 @@ export function App() {
   };
 
   const screenState = useMemo(() => {
+    if (activeLoading) return "loading";
     if (messages.length > 0) return "answered";
     if (files.length === 0) return "empty";
     if (readyFiles.length === files.length) return "ready";
     return "processing";
-  }, [files, messages.length, readyFiles.length]);
+  }, [activeLoading, files, messages.length, readyFiles.length]);
 
   return (
     <div className="app-shell">
@@ -470,16 +498,28 @@ export function App() {
         />
         <main className="center-pane">
           {error && <div className="error-banner">{error}</div>}
-          {screenState === "empty" && <EmptyState upload={upload} busy={effectiveBusy || !activeSessionId} />}
+          {screenState === "empty" && (
+            <EmptyState
+              upload={upload}
+              busy={effectiveBusy || !activeSessionId}
+              composer={composer}
+              setComposer={setComposer}
+              ask={ask}
+              canAsk={canAskActiveSession}
+              onDetachFile={detachFile}
+              settings={settings}
+            />
+          )}
           {screenState !== "empty" && screenState !== "answered" && (
             <ProcessingView
               files={files}
               upload={upload}
               busy={effectiveBusy}
+              activeLoading={screenState === "loading"}
               composer={composer}
               setComposer={setComposer}
               ask={ask}
-              canAsk={readyFiles.length > 0}
+              canAsk={canAskActiveSession}
               onDetachFile={detachFile}
               onRetryFailedFiles={retryFailedFiles}
               openSettings={openSettings}
@@ -495,7 +535,7 @@ export function App() {
               composer={composer}
               setComposer={setComposer}
               ask={ask}
-              canAsk={readyFiles.length > 0 && !effectiveBusy}
+              canAsk={canAskActiveSession && !effectiveBusy}
               busy={effectiveBusy}
               onCitationClick={onCitationClick}
               onArtifactSelect={onArtifactSelect}
@@ -627,7 +667,16 @@ function FileMini({ file }: { file: FileRecord }) {
   );
 }
 
-function EmptyState({ upload, busy }: { upload: (files: File[]) => void; busy: boolean }) {
+function EmptyState(props: {
+  upload: (files: File[]) => void;
+  busy: boolean;
+  composer: string;
+  setComposer: (value: string) => void;
+  ask: (event?: FormEvent) => void;
+  canAsk: boolean;
+  onDetachFile: (fileId: string) => Promise<void>;
+  settings: Settings | null;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <section
@@ -635,18 +684,28 @@ function EmptyState({ upload, busy }: { upload: (files: File[]) => void; busy: b
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
-        upload(Array.from(event.dataTransfer.files));
+        props.upload(Array.from(event.dataTransfer.files));
       }}
     >
       <div className="empty-copy">
         <div className="mono caps accent">New session · no files yet</div>
         <h1>Attach your files.<br /><em>Ask anything grounded in them.</em></h1>
       </div>
-      <button className="attach-plate" disabled={busy} onClick={() => inputRef.current?.click()}>
+      <button className="attach-plate" disabled={props.busy} onClick={() => inputRef.current?.click()}>
         <Paperclip size={18} />
-        <span>{busy ? "Attaching" : "Attach files"}</span>
+        <span>{props.busy ? "Attaching" : "Attach files"}</span>
       </button>
-      <input ref={inputRef} className="hidden" type="file" multiple accept={acceptedTypes} disabled={busy} onChange={(event) => upload(Array.from(event.target.files ?? []))} />
+      <input ref={inputRef} className="hidden" type="file" multiple accept={acceptedTypes} disabled={props.busy} onChange={(event) => handleFileInputChange(event, props.upload)} />
+      <Composer
+        value={props.composer}
+        setValue={props.setComposer}
+        ask={props.ask}
+        disabled={!props.canAsk || props.busy}
+        files={[]}
+        busy={props.busy}
+        onDetachFile={props.onDetachFile}
+        settings={props.settings}
+      />
     </section>
   );
 }
@@ -655,6 +714,7 @@ function ProcessingView(props: {
   files: FileRecord[];
   upload: (files: File[]) => void;
   busy: boolean;
+  activeLoading?: boolean;
   composer: string;
   setComposer: (value: string) => void;
   ask: (event?: FormEvent) => void;
@@ -668,11 +728,13 @@ function ProcessingView(props: {
   const ready = props.files.filter((file) => file.status === "ready").length;
   const failed = props.files.filter((file) => file.status === "failed");
   const shouldShowFailureCallout = props.files.length > 0 && ready === 0 && failed.length > 0;
+  const activeLoading = Boolean(props.activeLoading);
   return (
-    <section className="processing-view">
-      <div className="mono caps accent">{ready === props.files.length ? "Files ready" : "Processing files"}</div>
-      <h2>{ready} of {props.files.length} files ready</h2>
-      {shouldShowFailureCallout && (
+    <section className="processing-view" aria-busy={activeLoading || undefined} aria-label={activeLoading ? "Loading selected session" : undefined}>
+      <div className="mono caps accent">{activeLoading ? "Loading session" : ready === props.files.length ? "Files ready" : "Processing files"}</div>
+      <h2>{activeLoading ? "Loading files and messages..." : `${ready} of ${props.files.length} files ready`}</h2>
+      {activeLoading && <p className="subtle">Hang tight while FileChat loads the selected session context.</p>}
+      {!activeLoading && shouldShowFailureCallout && (
         <div className="file-failure-callout">
           <div>
             <strong>File indexing failed</strong>
@@ -684,12 +746,16 @@ function ProcessingView(props: {
           </div>
         </div>
       )}
-      <div className="file-table">
-        {props.files.map((file) => <FileRow key={file.id} file={file} />)}
-      </div>
-      <button className="secondary-action" onClick={() => inputRef.current?.click()}><Paperclip size={15} /> Add files</button>
-      <input ref={inputRef} className="hidden" type="file" multiple accept={acceptedTypes} onChange={(event) => props.upload(Array.from(event.target.files ?? []))} />
-      <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk || props.busy} files={props.files} onDetachFile={props.onDetachFile} busy={props.busy} settings={props.settings} />
+      {!activeLoading && (
+        <>
+          <div className="file-table">
+            {props.files.map((file) => <FileRow key={file.id} file={file} />)}
+          </div>
+          <button className="secondary-action" onClick={() => inputRef.current?.click()}><Paperclip size={15} /> Add files</button>
+          <input ref={inputRef} className="hidden" type="file" multiple accept={acceptedTypes} onChange={(event) => handleFileInputChange(event, props.upload)} />
+        </>
+      )}
+      <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk || props.busy || activeLoading} files={activeLoading ? [] : props.files} onDetachFile={props.onDetachFile} busy={props.busy || activeLoading} settings={props.settings} />
     </section>
   );
 }
@@ -971,6 +1037,8 @@ function Composer(props: {
       ? "No ready sources · fix failed files before sending"
       : "No ready sources yet · you can draft while files process";
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Some older WebKit IME paths report keyCode 229 instead of reliably setting isComposing.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
       if (!props.disabled && props.value.trim()) props.ask();

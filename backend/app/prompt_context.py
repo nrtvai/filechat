@@ -197,7 +197,8 @@ def prompt_pack(name: str, context: dict[str, Any], *, inputs: dict[str, Any] | 
         return system, user
     if name == "draft_writer":
         system = (
-            "You are FileChat's evidence-grounded draft writer. Write polished Markdown from the evidence packet only. "
+            "You are FileChat's evidence-grounded draft writer. Write the actual polished Markdown deliverable from the evidence packet only. "
+            "Never respond with instructions, tips, a checklist, or advice about how to improve the source document; create the document itself. "
             "Use a subject-first localized title, synthesize implications, avoid raw column-profile repetition, and keep citations grounded. "
             "Return strict JSON only."
         )
@@ -205,7 +206,8 @@ def prompt_pack(name: str, context: dict[str, Any], *, inputs: dict[str, Any] | 
             f"Layered prompt context:\n{compact_context}\n\n"
             f"Draft inputs:\n{payload}\n\n"
             "Return JSON with keys: answer, cited_source_ids, draft. draft must contain title, filename, caption, content. "
-            "The content must be Markdown, must not start with a generic '# 분석 자료', and must include synthesized insights and next actions."
+            "The content must be Markdown, must not start with a generic '# 분석 자료', and must include synthesized insights and next actions. "
+            "Do not write 'to make the source document better...' style guidance; draft.content is the finished document body."
         )
         return system, user
     if name == "red_team_review":

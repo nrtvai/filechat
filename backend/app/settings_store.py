@@ -75,15 +75,15 @@ def delete_setting(key: str) -> None:
 
 def get_openrouter_key() -> tuple[str | None, str]:
     settings = get_settings()
-    env_key = _normalized_key(settings.openrouter_api_key)
-    if env_key:
-        return env_key, "env"
     key = _normalized_key(_keyring_get())
     if key:
         return key, "local"
     fallback = _normalized_key(get_setting("openrouter_api_key"))
     if fallback:
         return fallback, "local"
+    env_key = _normalized_key(settings.openrouter_api_key)
+    if env_key:
+        return env_key, "env"
     return None, "missing"
 
 

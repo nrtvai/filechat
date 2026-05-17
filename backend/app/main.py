@@ -58,7 +58,8 @@ from .models import (
     WikiNodeOut,
     WikiNodePatch,
 )
-from .notion_export import markdown_for_artifact, notion_import_bundle, slugify_filename, table_payload_for_artifact
+from .notion_export import markdown_for_artifact, notion_import_bundle, pdf_for_artifact, slugify_filename, table_payload_for_artifact
+from .open_design import open_design_bundle_for_artifact
 from .openrouter import OpenRouterClient
 from .orchestration import build_preflight, model_recommendations
 from .prompt_context import context_profile, patch_context_profile, refresh_session_context, session_context
@@ -1303,7 +1304,7 @@ def list_messages(session_id: str, principal: Principal = Depends(current_princi
 def export_artifact(
     session_id: str,
     artifact_id: str,
-    format: str = Query(default="md", pattern="^(md|json|notion|csv)$"),
+    format: str = Query(default="md", pattern="^(md|json|notion|csv|pdf|od)$"),
     principal: Principal = Depends(current_principal),
 ):
     ensure_session(session_id, principal)
@@ -1318,6 +1319,16 @@ def export_artifact(
     spec = json_loads(row["spec_json"], {})
     row_dict = dict(row)
     row_dict["source_chunk_ids"] = json_loads(row["source_chunk_ids"], [])
+    if format == "od":
+        try:
+            content, filename = open_design_bundle_for_artifact(row_dict, spec)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return Response(
+            content=content,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     if format == "csv":
         table = table_payload_for_artifact(spec)
         if not table:
@@ -1344,6 +1355,13 @@ def export_artifact(
         return Response(
             content=json.dumps(notion_import_bundle(row_dict, spec), ensure_ascii=False, indent=2),
             media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    if format == "pdf":
+        content, filename = pdf_for_artifact(row_dict, spec)
+        return Response(
+            content=content,
+            media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 

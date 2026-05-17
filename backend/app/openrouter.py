@@ -1441,7 +1441,7 @@ def _fake_build_artifacts(
         elif kind == "table":
             artifacts.append(_fake_table(item, table, sources))
         elif kind == "file_draft":
-            artifacts.append(_fake_file_draft(item, table, source_profile, sources))
+            artifacts.append(_fake_file_draft(item, table, source_profile, sources, question=question))
         elif kind == "summary_panel":
             artifacts.append(_fake_summary_panel(item, table, source_profile, sources))
         elif kind == "mermaid":
@@ -1544,7 +1544,14 @@ def _fake_table(plan_item: dict[str, Any], table: dict[str, Any] | None, sources
     }
 
 
-def _fake_file_draft(plan_item: dict[str, Any], table: dict[str, Any] | None, source_profile: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
+def _fake_file_draft(
+    plan_item: dict[str, Any],
+    table: dict[str, Any] | None,
+    source_profile: dict[str, Any],
+    sources: list[dict[str, Any]],
+    *,
+    question: str = "",
+) -> dict[str, Any]:
     title = str(plan_item.get("title") or "Source draft")
     lines = [
         f"# {title}",
@@ -1577,7 +1584,7 @@ def _fake_file_draft(plan_item: dict[str, Any], table: dict[str, Any] | None, so
         ]
     )
     filename = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "source-draft"
-    return {
+    artifact = {
         "kind": "file_draft",
         "title": title,
         "caption": str(plan_item.get("description") or "Source-grounded draft."),
@@ -1586,6 +1593,17 @@ def _fake_file_draft(plan_item: dict[str, Any], table: dict[str, Any] | None, so
         "format": "markdown",
         "content": "\n".join(lines),
     }
+    normalized_question = f"{question} {title} {plan_item.get('description') or ''}".lower()
+    if "open design" in normalized_question or "design brief" in normalized_question or "material" in normalized_question:
+        material_type = "design_brief" if "brief" in normalized_question else "docs_page"
+        if "report" in normalized_question:
+            material_type = "report"
+        elif "one pager" in normalized_question or "one-pager" in normalized_question:
+            material_type = "one_pager"
+        elif "pack" in normalized_question:
+            material_type = "material_pack"
+        artifact["open_design"] = {"material_type": material_type, "skill_name": title}
+    return artifact
 
 
 def _fake_summary_panel(plan_item: dict[str, Any], table: dict[str, Any] | None, source_profile: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:

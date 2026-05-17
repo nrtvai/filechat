@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+import textwrap
 from typing import Any
 
 from .utils import now
@@ -46,6 +47,97 @@ def markdown_for_artifact(row: dict[str, Any], spec: dict[str, Any]) -> tuple[st
             content += "\n" + markdown_table(table["columns"], table["rows"]) + "\n"
         filename = f"{title}.md"
     return content, slugify_filename(filename, ".md")
+
+
+
+def pdf_for_artifact(row: dict[str, Any], spec: dict[str, Any]) -> tuple[bytes, str]:
+    """Render an artifact's Markdown export as a simple downloadable PDF.
+
+    This intentionally avoids arbitrary HTML rendering. It creates a deterministic
+    text-first PDF from the same safe Markdown representation used by md export.
+    """
+    markdown, markdown_filename = markdown_for_artifact(row, spec)
+    filename = slugify_filename(re.sub(r"\.md$", "", markdown_filename), ".pdf")
+    return _simple_text_pdf(markdown), filename
+
+
+def _simple_text_pdf(markdown: str) -> bytes:
+    lines = _plain_pdf_lines(markdown)
+    page_lines = 42
+    pages = [lines[index : index + page_lines] for index in range(0, max(len(lines), 1), page_lines)] or [[]]
+    objects: list[bytes] = []
+
+    def add_object(payload: str | bytes) -> int:
+        data = payload.encode("latin-1", errors="replace") if isinstance(payload, str) else payload
+        objects.append(data)
+        return len(objects)
+
+    catalog_id = add_object(b"")
+    pages_id = add_object(b"")
+    font_id = add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    page_ids: list[int] = []
+    for page in pages:
+        content_id = len(objects) + 2
+        page_id = add_object(
+            f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+        )
+        page_ids.append(page_id)
+        stream = _pdf_text_stream(page)
+        add_object(f"<< /Length {len(stream)} >>\nstream\n".encode("latin-1") + stream + b"\nendstream")
+
+    objects[catalog_id - 1] = f"<< /Type /Catalog /Pages {pages_id} 0 R >>".encode("latin-1")
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+    objects[pages_id - 1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>".encode("latin-1")
+
+    output = io.BytesIO()
+    output.write(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, payload in enumerate(objects, start=1):
+        offsets.append(output.tell())
+        output.write(f"{index} 0 obj\n".encode("latin-1"))
+        output.write(payload)
+        output.write(b"\nendobj\n")
+    xref_offset = output.tell()
+    output.write(f"xref\n0 {len(objects) + 1}\n".encode("latin-1"))
+    output.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.write(f"{offset:010d} 00000 n \n".encode("latin-1"))
+    output.write(
+        f"trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R >>\n"
+        f"startxref\n{xref_offset}\n%%EOF\n".encode("latin-1")
+    )
+    return output.getvalue()
+
+
+def _plain_pdf_lines(markdown: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in markdown.splitlines():
+        line = re.sub(r"^#{1,6}\s*", "", raw_line).strip()
+        line = re.sub(r"^[-*]\s+", "- ", line)
+        if not line:
+            lines.append("")
+            continue
+        wrapped = textwrap.wrap(line, width=86, replace_whitespace=False, drop_whitespace=False)
+        lines.extend(wrapped or [""])
+    return lines or ["Artifact export"]
+
+
+def _pdf_text_stream(lines: list[str]) -> bytes:
+    commands = ["BT", "/F1 11 Tf", "14 TL", "50 742 Td"]
+    first = True
+    for line in lines:
+        if not first:
+            commands.append("T*")
+        first = False
+        commands.append(f"({_pdf_literal(line)}) Tj")
+    commands.append("ET")
+    return "\n".join(commands).encode("latin-1", errors="replace")
+
+
+def _pdf_literal(value: str) -> str:
+    normalized = value.encode("latin-1", errors="replace").decode("latin-1")
+    return normalized.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def _narrative_markdown(narrative: dict[str, Any]) -> list[str]:

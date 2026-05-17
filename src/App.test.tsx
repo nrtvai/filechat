@@ -199,10 +199,52 @@ function planningQuestion(run_id: string, kind: AgentRunQuestion["kind"] = "inte
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
+}
+
+async function enabledAskButton() {
+  let button: HTMLElement | undefined;
+  await waitFor(() => {
+    button = screen.getAllByRole("button", { name: /ask/i }).find((candidate) => !candidate.hasAttribute("disabled"));
+    expect(button).toBeDefined();
+  });
+  return button!;
+}
+
+function fileListOf(files: File[]): FileList {
+  const entries = files.reduce<Record<number, File>>((acc, file, index) => {
+    acc[index] = file;
+    return acc;
+  }, {});
+  return {
+    ...entries,
+    length: files.length,
+    item: (index: number) => files[index] ?? null,
+    [Symbol.iterator]: files[Symbol.iterator].bind(files),
+  } as FileList;
+}
+
+function chooseFiles(input: HTMLInputElement, files: File[], value = files[0] ? `C:\\fakepath\\${files[0].name}` : "C:\\fakepath\\cleared.txt") {
+  Object.defineProperty(input, "files", { configurable: true, value: fileListOf(files) });
+  Object.defineProperty(input, "value", { configurable: true, writable: true, value });
+  fireEvent.change(input);
+}
+
+function chooseFile(input: HTMLInputElement, selectedFile: File) {
+  chooseFiles(input, [selectedFile]);
+}
+
+function uploadPostCount(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/api/sessions/ses_new/files") && init?.method === "POST").length;
+}
+
+function runPostCount(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(([input, init]) => String(input).endsWith("/api/sessions/ses_new/runs") && init?.method === "POST").length;
 }
 
 describe("App", () => {
@@ -237,6 +279,226 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST", body: JSON.stringify({}) }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/sessions/ses_new/files", expect.anything()));
     expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_old/files", expect.anything());
+  });
+
+  it("resets the cold-start Attach files input so the same file can be selected again", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files") && init?.method === "POST") return Response.json([file("fil_repeat", "repeat.txt", "queued")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Attach files")).toBeInTheDocument();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    const selectedFile = new File(["repeat"], "repeat.txt", { type: "text/plain" });
+
+    chooseFile(input, selectedFile);
+
+    await waitFor(() => expect(uploadPostCount(fetchMock)).toBe(1));
+    expect(input.value).toBe("");
+
+    chooseFile(input, selectedFile);
+
+    await waitFor(() => expect(uploadPostCount(fetchMock)).toBe(2));
+    expect(input.value).toBe("");
+  });
+
+  it("resets the processing Add files input so the same file can be selected again", async () => {
+    const readyFile = file("fil_ready", "ready.txt");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files") && init?.method === "POST") return Response.json([readyFile, file("fil_repeat", "repeat.txt", "queued")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([readyFile]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Files ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add files/i })).toBeInTheDocument();
+    expect(screen.queryByText("Attach files")).not.toBeInTheDocument();
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    expect(fileInputs).toHaveLength(1);
+    const input = fileInputs[0] as HTMLInputElement;
+    const selectedFile = new File(["repeat"], "repeat.txt", { type: "text/plain" });
+
+    chooseFile(input, selectedFile);
+
+    await waitFor(() => expect(uploadPostCount(fetchMock)).toBe(1));
+    expect(input.value).toBe("");
+
+    chooseFile(input, selectedFile);
+
+    await waitFor(() => expect(uploadPostCount(fetchMock)).toBe(2));
+    expect(input.value).toBe("");
+  });
+
+  it("resets a file input without uploading when the selected file list is empty", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Attach files")).toBeInTheDocument();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+
+    chooseFiles(input, [], "C:\\fakepath\\cancelled.txt");
+
+    expect(uploadPostCount(fetchMock)).toBe(0);
+    expect(input.value).toBe("");
+  });
+
+  it("keeps the chat composer visible on cold start without ready files and does not submit drafts", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Attach files")).toBeInTheDocument();
+    const input = await screen.findByLabelText("Ask a question about the selected files");
+    expect(input).toBeVisible();
+    expect(screen.getByText("No ready sources yet · you can draft while files process")).toBeVisible();
+
+    fireEvent.change(input, { target: { value: "I can draft before attaching" } });
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+
+    expect(input).toHaveValue("I can draft before attaching");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_new/runs", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("ignores the composer shortcut during IME composition", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs") && init?.method === "POST") return Response.json(run("run_1", "completed", "한글 질문"));
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const input = await screen.findByLabelText("Ask a question about the selected files");
+    await screen.findByText(/1 ready source/);
+    fireEvent.change(input, { target: { value: "한글 질문" } });
+
+    const composingShortcut = new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true });
+    Object.defineProperty(composingShortcut, "isComposing", { value: true });
+    fireEvent(input, composingShortcut);
+
+    expect(runPostCount(fetchMock)).toBe(0);
+    expect(input).toHaveValue("한글 질문");
+
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true, keyCode: 229 });
+
+    expect(runPostCount(fetchMock)).toBe(0);
+    expect(input).toHaveValue("한글 질문");
+
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => expect(runPostCount(fetchMock)).toBe(1));
+  });
+
+  it("does not submit to a newly selected session while its files and messages are still loading", async () => {
+    const slowFiles = deferred<Response>();
+    const slowMessages = deferred<Response>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_fresh", "Fresh session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_fresh", "Fresh session", 1), session("ses_slow", "Slow session", 1)]);
+      if (url.endsWith("/api/sessions/ses_fresh/files")) return Response.json([file("fil_fresh", "fresh.txt")]);
+      if (url.endsWith("/api/sessions/ses_fresh/messages")) return Response.json([message("msg_fresh", "ses_fresh", "assistant", "Fresh answer")]);
+      if (url.endsWith("/api/sessions/ses_fresh/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_fresh/runs")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_slow/files")) return slowFiles.promise;
+      if (url.endsWith("/api/sessions/ses_slow/messages")) return slowMessages.promise;
+      if (url.endsWith("/api/sessions/ses_slow/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_slow/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Fresh answer")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Slow session/i }));
+
+    expect(await screen.findByText("Loading session")).toBeInTheDocument();
+    expect(screen.getByText("Loading files and messages...")).toBeInTheDocument();
+    expect(screen.queryByText("Files ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 of 0 files ready")).not.toBeInTheDocument();
+
+    const input = await screen.findByLabelText("Ask a question about the selected files");
+    fireEvent.change(input, { target: { value: "Do not submit while stale sources are visible" } });
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    for (const button of screen.getAllByRole("button", { name: /ask/i })) {
+      fireEvent.click(button);
+    }
+
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_slow/runs", expect.objectContaining({ method: "POST" }));
+
+    await act(async () => {
+      slowFiles.resolve(Response.json([file("fil_slow", "slow.txt")]));
+      slowMessages.resolve(Response.json([]));
+    });
   });
 
   it("shows a clear API offline message when the dev server is not reachable", async () => {
@@ -323,7 +585,9 @@ describe("App", () => {
     render(<App />);
 
     const input = await screen.findByLabelText("Ask a question about the selected files");
-    fireEvent.change(input, { target: { value: "Make a chart about the survey result" } });
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "Make a chart about the survey result" } });
+    });
 
     expect(await screen.findByLabelText("Agent Setup preview")).toBeInTheDocument();
     expect(screen.getByText(/CSV parser/)).toBeInTheDocument();
@@ -347,10 +611,10 @@ describe("App", () => {
     render(<App />);
 
     const input = await screen.findByLabelText("Ask a question about the selected files");
+    await screen.findByText(/1 ready source/);
     fireEvent.change(input, { target: { value: "Summarize this file" } });
-    const sendButton = screen.getAllByRole("button", { name: /ask/i }).find((button) => !button.hasAttribute("disabled"));
-    expect(sendButton).toBeDefined();
-    fireEvent.click(sendButton!);
+    const sendButton = await enabledAskButton();
+    fireEvent.click(sendButton);
 
     expect(await screen.findByText("Reading the sources...")).toBeInTheDocument();
 
@@ -386,6 +650,42 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getAllByText("old.txt").length).toBeGreaterThan(0));
     expect(screen.queryAllByText("new.txt")).toHaveLength(0);
+  });
+
+  it("ignores stale session load failures after switching sessions", async () => {
+    const newFiles = deferred<Response>();
+    const newMessages = deferred<Response>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "Fresh session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_old", "Old conversation", 1), session("ses_new", "Fresh session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return newFiles.promise;
+      if (url.endsWith("/api/sessions/ses_new/messages")) return newMessages.promise;
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_old/files")) return Response.json([file("fil_old", "old.txt")]);
+      if (url.endsWith("/api/sessions/ses_old/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_old/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_old/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Old conversation/i }));
+    await waitFor(() => expect(screen.getAllByText("old.txt").length).toBeGreaterThan(0));
+
+    await act(async () => {
+      newMessages.resolve(Response.json([]));
+      newFiles.reject(new Error("Stale new-session load failed"));
+    });
+
+    await waitFor(() => expect(screen.queryByText("Stale new-session load failed")).not.toBeInTheDocument());
+    expect(screen.getAllByText("old.txt").length).toBeGreaterThan(0);
   });
 
   it("shows failed files clearly without exposing raw provider errors in the layout", async () => {
@@ -458,6 +758,7 @@ describe("App", () => {
     render(<App />);
 
     const input = await screen.findByLabelText("Ask a question about the selected files");
+    await screen.findByText(/1 ready source/);
     fireEvent.change(input, { target: { value: "Summarize" } });
     fireEvent.keyDown(input, { key: "Enter", metaKey: true });
 
@@ -838,15 +1139,16 @@ describe("App", () => {
     render(<App />);
 
     const input = await screen.findByLabelText("Ask a question about the selected files");
+    await screen.findByText(/1 ready source/);
     fireEvent.change(input, { target: { value: "First offline ask" } });
-    fireEvent.click(screen.getAllByRole("button", { name: /ask/i }).find((button) => !button.hasAttribute("disabled"))!);
+    fireEvent.click(await enabledAskButton());
 
     expect(await screen.findByText(API_UNAVAILABLE_MESSAGE)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("First offline ask")).toBeInTheDocument());
 
     const transcriptInput = screen.getByLabelText("Ask a question about the selected files");
     fireEvent.change(transcriptInput, { target: { value: "Second offline ask" } });
-    fireEvent.click(screen.getAllByRole("button", { name: /ask/i }).find((button) => !button.hasAttribute("disabled"))!);
+    fireEvent.click(await enabledAskButton());
 
     await waitFor(() => expect(screen.getByText("Second offline ask")).toBeInTheDocument());
     expect(consoleError.mock.calls.some((call) => String(call[0]).includes("Encountered two children with the same key"))).toBe(false);
@@ -924,6 +1226,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Pilot Plan")).toBeInTheDocument();
     expect(screen.getByText("Operations")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "PDF" })).toHaveAttribute("href", expect.stringContaining("format=pdf"));
     fireEvent.click(screen.getByRole("button", { name: "Inspect" }));
     expect(await screen.findByText("Artifacts · this session")).toBeInTheDocument();
     expect(screen.getByText("1 source chunk")).toBeInTheDocument();
@@ -1357,7 +1660,8 @@ describe("App", () => {
     const draft = artifact("art_draft", "file_draft", {
       filename: "memo.md",
       format: "markdown",
-      content: "# Memo\n\nGrounded draft."
+      content: "# Memo\n\nGrounded draft.",
+      open_design: { material_type: "docs_page" }
     });
     const answer = { ...message("msg_answer", "ses_new", "assistant", "I drafted a file."), citations: [citation("cit_1")], artifacts: [draft] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1378,6 +1682,33 @@ describe("App", () => {
     expect(await screen.findByText("memo.md")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Markdown" })).toHaveAttribute("href", "/api/sessions/ses_new/artifacts/art_draft/export?format=md");
     expect(screen.getByRole("link", { name: "JSON" })).toHaveAttribute("href", "/api/sessions/ses_new/artifacts/art_draft/export?format=json");
+    expect(screen.getByRole("link", { name: "Open Design ZIP" })).toHaveAttribute("href", "/api/sessions/ses_new/artifacts/art_draft/export?format=od");
+  });
+
+  it("hides Open Design ZIP export for normal file drafts", async () => {
+    const draft = artifact("art_draft", "file_draft", {
+      filename: "memo.md",
+      format: "markdown",
+      content: "# Memo\n\nGrounded draft."
+    });
+    const answer = { ...message("msg_answer", "ses_new", "assistant", "I drafted a file."), citations: [citation("cit_1")], artifacts: [draft] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("memo.md")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Design ZIP" })).not.toBeInTheDocument();
   });
 
   it("minimizes transcript sources by default", async () => {

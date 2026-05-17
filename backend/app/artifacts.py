@@ -166,6 +166,7 @@ class RawArtifact(BaseModel):
     filename: str = ""
     format: Literal["markdown", "json"] = "markdown"
     content: Any = ""
+    open_design: dict[str, Any] | None = None
 
     @field_validator("kind", mode="before")
     @classmethod
@@ -310,7 +311,12 @@ def _draft_spec(raw: RawArtifact) -> dict[str, Any]:
     filename = raw.filename.strip() or ("draft.md" if raw.format == "markdown" else "draft.json")
     if "/" in filename or "\\" in filename:
         raise ValueError("Draft filename must not contain path separators")
-    return {"filename": filename, "format": raw.format, "content": content}
+    spec: dict[str, Any] = {"filename": filename, "format": raw.format, "content": content}
+    if raw.open_design is not None:
+        from .open_design import normalize_open_design_metadata
+
+        spec["open_design"] = normalize_open_design_metadata(raw.open_design)
+    return spec
 
 
 def _normalize_json_render_spec(spec: dict[str, Any]) -> dict[str, Any]:
