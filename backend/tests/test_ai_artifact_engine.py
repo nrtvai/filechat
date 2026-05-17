@@ -57,6 +57,52 @@ def latest_message(client, session_id: str) -> dict:
     return client.get(f"/api/sessions/{session_id}/messages").json()[-1]
 
 
+def test_source_profile_uses_later_excel_mode_preview_when_first_sheet_is_notes():
+    summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: workbook.xlsx\n\n"
+        "## Worksheet: Notes\n"
+        "Rows: 1\n"
+        "Columns: 1\n"
+        "Headers: Note\n\n"
+        "Preview:\n"
+        "| Note |\n"
+        "| --- |\n"
+        "| Generated export; see Sales sheet |\n\n"
+        "## Worksheet: Sales\n"
+        "Rows: 2\n"
+        "Columns: 3\n"
+        "Headers: Region, Revenue, Margin\n\n"
+        "Preview:\n"
+        "| Region | Revenue | Margin |\n"
+        "| --- | --- | --- |\n"
+        "| North | 1200 | 0.32 |\n"
+        "| South | 900 | 0.27 |\n"
+    )
+    file_texts = [{"file_id": "file_excel", "file_name": "workbook.xlsx", "text": summary}]
+    sources = [
+        {
+            "source_id": 101,
+            "file_id": "file_excel",
+            "file_name": "workbook.xlsx",
+            "location": "chunk 1",
+            "chunk_id": "chunk_excel",
+            "content": summary,
+            "excerpt": summary[:120],
+        }
+    ]
+
+    profile = profile_sources(file_texts, sources)
+
+    assert profile["diagnostics"]["table_count"] == 1
+    table = profile["tables"][0]
+    assert table["row_count"] == 2
+    assert [column["name"] for column in table["columns"]] == ["Region", "Revenue", "Margin"]
+    assert table["source_ids"] == [101]
+    assert table["source_chunk_ids"] == ["chunk_excel"]
+    assert table["columns"][1]["role"] == "numeric"
+
+
 def test_source_profile_handles_unrelated_csv_shapes_generically():
     file_texts = [
         {"file_id": f"file_{index}", "file_name": name, "text": text}

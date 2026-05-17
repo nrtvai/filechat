@@ -394,6 +394,28 @@ def chart_uses_suspicious_measure(artifact: Any) -> bool:
     return False
 
 
+def is_instruction_only_draft(content: str) -> bool:
+    normalized = " ".join(str(content or "").lower().split())
+    if not normalized:
+        return False
+    instruction_markers = (
+        "to make the source document better",
+        "to improve the source document",
+        "how to improve the source document",
+        "you should also",
+        "you should ",
+        "add an executive summary",
+        "clean up the formatting",
+        "rewrite weak",
+        "improve the section headings",
+    )
+    action_verbs = ("add ", "remove ", "rewrite ", "improve ", "clarify ", "check ", "clean up ")
+    marker_hits = sum(1 for marker in instruction_markers if marker in normalized)
+    verb_hits = sum(1 for verb in action_verbs if verb in normalized)
+    source_doc_refs = any(ref in normalized for ref in ("source document", "original source", "attached source", "source file"))
+    return marker_hits >= 1 and source_doc_refs and verb_hits >= 2
+
+
 def review_contract_result(
     *,
     task_contract: dict[str, Any],
@@ -435,6 +457,8 @@ def review_contract_result(
             failures.append("The draft uses a generic filename instead of a subject-specific filename.")
         if isinstance(content, str) and (content.startswith("# 분석 자료") or "open_text, non-empty" in content or "작성 팁:" in content):
             failures.append("The draft repeats raw survey metadata instead of a polished analysis.")
+        if isinstance(content, str) and is_instruction_only_draft(content):
+            failures.append("The draft is instruction-only guidance about improving a source document instead of the created document itself.")
     if "file_draft" in requested_outputs and "chart" in artifact_kinds:
         for artifact in artifacts:
             if getattr(artifact, "kind", "") == "chart" and str(getattr(artifact, "title", "") or "") in {"Survey themes", "Survey chart"}:

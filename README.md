@@ -11,7 +11,7 @@ FileChat is also split at the product boundary: Community edition defaults to a 
 - Upload and index PDFs, Office files, spreadsheets, CSV/TSV, Markdown/text, and common image formats.
 - Ask grounded questions over attached files with cited source chunks.
 - Run model-led but tool-backed workflows for planning, search, analysis, writing, review, and implement.
-- Build safe artifacts such as charts, tables, summary panels, Mermaid diagrams, and exportable file drafts.
+- Build safe artifacts such as charts, tables, summary panels, Mermaid diagrams, and exportable file drafts with Markdown, PDF, JSON, Notion, and CSV export paths where applicable.
 - Profile survey-style CSVs and generate deterministic chart/table outputs before relying on fragile model formatting.
 - Persist runs, action records, review results, redacted evidence packets, repair attempts, and artifact history for debugging.
 - Degrade gracefully when model/provider actions fail by using local structured analysis where possible.
@@ -79,7 +79,7 @@ uv sync --extra dev
 cp .env.example .env
 ```
 
-Set `OPENROUTER_API_KEY` in `.env`, or add it later from the in-app Settings panel. Environment variables take precedence over locally stored keys and cannot be cleared from the app; admins can only clear keys saved by FileChat.
+Set `OPENROUTER_API_KEY` in `.env`, or add it later from the in-app Settings panel. In-app saved keys take precedence over `.env` so you can replace a stale local development key without editing files; if no in-app key is saved, FileChat falls back to the environment key.
 
 ### Run the app
 

@@ -204,6 +204,6 @@ export const api = {
     request<AgentRunWorkspaceItem[]>(`/sessions/${sessionId}/runs/${runId}/workspace`),
   refreshSessionContext: (sessionId: string) =>
     request<Record<string, unknown>>(`/sessions/${sessionId}/context/refresh`, { method: "POST" }),
-  exportArtifactUrl: (sessionId: string, artifactId: string, format: "md" | "json" | "notion" | "csv") =>
+  exportArtifactUrl: (sessionId: string, artifactId: string, format: "md" | "json" | "notion" | "csv" | "pdf" | "od") =>
     `${API}/sessions/${sessionId}/artifacts/${artifactId}/export?format=${format}`
 };

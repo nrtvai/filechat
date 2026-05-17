@@ -1,7 +1,9 @@
 import hashlib
 import hmac
+import io
 import json
 import time
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,7 @@ from backend.app.database import connect
 from backend.app.main import app
 from backend.app.openrouter import ChatResult, EmbeddingResult, OpenRouterClient, OpenRouterResponseError
 from backend.app.providers import DEFAULT_PROVIDER_ID, provider_registry
+from backend.app.retrieval import _replace_draft_artifact
 from backend.app.settings_store import get_openrouter_key, set_setting
 from backend.app.usage import UsageInfo
 from backend.app.utils import now
@@ -374,17 +377,17 @@ def test_retry_failed_file_requeues_and_reprocesses(monkeypatch, tmp_path):
         assert files[0]["error"] is None
 
 
-def test_env_openrouter_key_overrides_stale_local_key(monkeypatch, tmp_path):
+def test_saved_openrouter_key_overrides_stale_env_key(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path):
-        monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "stale-env-key")
         monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
         get_settings.cache_clear()
-        set_setting("openrouter_api_key", "local-key")
+        set_setting("openrouter_api_key", "fresh-local-key")
 
         key, source = get_openrouter_key()
 
-        assert key == "env-key"
-        assert source == "env"
+        assert key == "fresh-local-key"
+        assert source == "local"
 
 
 def test_openrouter_key_save_falls_back_to_db_when_keyring_readback_fails(monkeypatch, tmp_path):
@@ -396,14 +399,35 @@ def test_openrouter_key_save_falls_back_to_db_when_keyring_readback_fails(monkey
     get_settings.cache_clear()
 
     with TestClient(app) as client:
-        saved = client.patch("/api/settings", json={"openrouter_api_key": "sk-or-local-secret"})
+        saved = client.patch("/api/settings", json={"openrouter_api_key": "sk-or-...cret"})
 
         assert saved.status_code == 200
         payload = saved.json()
         assert payload["openrouter_key_configured"] is True
         assert payload["openrouter_key_source"] == "local"
         key, source = get_openrouter_key()
-        assert key == "sk-or-local-secret"
+        assert key == "sk-or-...cret"
+        assert source == "local"
+
+
+def test_openrouter_key_save_uses_new_local_key_even_when_env_key_exists(monkeypatch, tmp_path):
+    monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "stale-env-key")
+    monkeypatch.setattr("backend.app.settings_store._keyring_set", lambda value: True)
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
+    get_settings.cache_clear()
+
+    with TestClient(app) as client:
+        saved = client.patch("/api/settings", json={"openrouter_api_key": "fresh-local-key"})
+
+        assert saved.status_code == 200
+        payload = saved.json()
+        assert payload["openrouter_key_configured"] is True
+        assert payload["openrouter_key_source"] == "local"
+        assert payload["openrouter_provider_status"] == "unverified"
+        key, source = get_openrouter_key()
+        assert key == "fresh-local-key"
         assert source == "local"
 
 
@@ -827,6 +851,7 @@ def test_openrouter_verify_endpoint_marks_provider_verified(monkeypatch, tmp_pat
     monkeypatch.setenv("FILECHAT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("FILECHAT_ALLOW_FAKE_OPENROUTER", "false")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setattr("backend.app.settings_store._keyring_get", lambda: None)
     monkeypatch.setattr(OpenRouterClient, "verify_provider", fake_verify_provider)
     get_settings.cache_clear()
 
@@ -2112,6 +2137,58 @@ def test_review_rejects_generic_repetitive_analysis_draft():
     assert any("raw survey metadata" in failure for failure in review["failures"])
 
 
+def test_review_rejects_instruction_only_file_draft():
+    review = review_contract_result(
+        task_contract={"required_outputs": ["file_draft"], "deliverable": "insight_report"},
+        answer="I created the draft.",
+        artifacts=[
+            ValidatedArtifact(
+                kind="file_draft",
+                title="Customer Survey Improvement Plan",
+                caption="",
+                source_chunk_ids=["chk_1"],
+                spec={
+                    "filename": "customer-survey-improvement-plan.md",
+                    "format": "markdown",
+                    "content": (
+                        "# Customer Survey Improvement Plan\n\n"
+                        "To make the source document better, add an executive summary, clean up the formatting, "
+                        "remove duplicated rows, improve the section headings, add charts, clarify the audience, "
+                        "and rewrite weak paragraphs. You should also check every claim against the original source."
+                    ),
+                },
+            )
+        ],
+        cited_source_ids=[1],
+    )
+
+    assert review["passed"] is False
+    assert any("instruction" in failure.lower() for failure in review["failures"])
+
+
+def test_instruction_only_model_draft_does_not_replace_deterministic_draft():
+    deterministic = [
+        {"kind": "chart", "title": "Survey themes", "values": [{"label": "A", "value": 1}]},
+        {
+            "kind": "file_draft",
+            "title": "Real source analysis",
+            "filename": "real-source-analysis.md",
+            "content": "# Real source analysis\n\nThis is the actual generated document body from deterministic evidence.",
+        },
+    ]
+    model_draft = {
+        "kind": "file_draft",
+        "title": "How to improve the source document",
+        "filename": "source-document-instructions.md",
+        "content": "To make the source document better, add a summary, rewrite weak areas, and improve formatting.",
+    }
+
+    replaced = _replace_draft_artifact(deterministic, model_draft)
+
+    draft = next(artifact for artifact in replaced if artifact["kind"] == "file_draft")
+    assert draft["title"] == "Real source analysis"
+
+
 def test_review_allows_missing_supporting_artifact_with_warning():
     review = review_contract_result(
         task_contract={
@@ -2437,6 +2514,83 @@ def test_file_draft_artifact_exports_markdown_and_json(monkeypatch, tmp_path):
         assert "# Memo" in md.text
         assert js.status_code == 200
         assert js.json()["content"] == "# Memo\n\nGrounded draft."
+
+
+def test_file_draft_artifact_exports_open_design_zip(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="Built an Open Design compatible draft.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "file_draft",
+                    "title": "Open Design Brief",
+                    "caption": "Open Design ZIP ready",
+                    "source_ids": [1],
+                    "filename": "brief.md",
+                    "format": "markdown",
+                    "content": "# Brief\n\nGrounded launch material.",
+                    "open_design": {"material_type": "design_brief", "skill_name": "Launch Brief"},
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Open Design draft"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", b"Launch material source.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Create an Open Design design brief"})
+        artifact = answer.json()["artifacts"][0]
+        export = client.get(f"/api/sessions/{session['id']}/artifacts/{artifact['id']}/export?format=od")
+
+        assert export.status_code == 200
+        assert export.headers["content-type"] == "application/zip"
+        with zipfile.ZipFile(io.BytesIO(export.content)) as bundle:
+            assert set(bundle.namelist()) == {"SKILL.md", "DESIGN.md", "content.md", "metadata.json"}
+            metadata = json.loads(bundle.read("metadata.json"))
+        assert metadata["material_type"] == "design_brief"
+        assert metadata["source_artifact_id"] == artifact["id"]
+
+
+def test_open_design_export_rejects_non_eligible_artifacts(monkeypatch, tmp_path):
+    async def fake_chat(self, *, model, question, sources, unavailable, history=None):
+        return ChatResult(
+            answer="Built a normal draft.",
+            cited_source_ids=[1],
+            artifacts=[
+                {
+                    "kind": "file_draft",
+                    "title": "Normal Draft",
+                    "source_ids": [1],
+                    "filename": "normal.md",
+                    "format": "markdown",
+                    "content": "# Normal",
+                }
+            ],
+            model=model,
+        )
+
+    monkeypatch.setattr("backend.app.retrieval.OpenRouterClient.chat", fake_chat)
+
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "Normal draft"}).json()
+        client.post(
+            f"/api/sessions/{session['id']}/files",
+            files={"uploads": ("memo.txt", b"Normal source.", "text/plain")},
+        )
+
+        answer = client.post(f"/api/sessions/{session['id']}/messages", json={"content": "Create a normal file"})
+        artifact = answer.json()["artifacts"][0]
+        export = client.get(f"/api/sessions/{session['id']}/artifacts/{artifact['id']}/export?format=od")
+
+        assert export.status_code == 400
+        assert "Open Design" in export.json()["detail"]
 
 
 def test_file_draft_artifact_exports_notion_bundle(monkeypatch, tmp_path):
@@ -2962,3 +3116,40 @@ def test_follow_up_answer_rejects_replay(monkeypatch, tmp_path):
         assert first.status_code == 200
         assert second.status_code == 409
         assert "already been answered" in second.json()["detail"]
+
+def test_artifact_pdf_export_returns_downloadable_pdf(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        session = client.post("/api/sessions", json={"title": "PDF export"}).json()
+        created = now()
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+                ("msg_pdf_export", session["id"], "assistant", "Draft ready.", created),
+            )
+            conn.execute(
+                """
+                INSERT INTO artifacts
+                  (id, session_id, message_id, kind, title, caption, display_mode, source_chunk_ids, spec_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "art_pdf_export",
+                    session["id"],
+                    "msg_pdf_export",
+                    "file_draft",
+                    "Board Memo",
+                    "Grounded draft",
+                    "primary",
+                    json.dumps([]),
+                    json.dumps({"filename": "board-memo.md", "content": "# Board Memo\n\nRevenue rose 12% from enterprise renewals."}),
+                    created,
+                ),
+            )
+        response = client.get(f"/api/sessions/{session['id']}/artifacts/art_pdf_export/export?format=pdf")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert 'filename="board-memo.pdf"' in response.headers["content-disposition"]
+        assert response.content.startswith(b"%PDF-")
+        assert b"Board Memo" in response.content
+        assert b"Revenue rose 12%" in response.content

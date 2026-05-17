@@ -38,6 +38,7 @@ from .agent_runtime import (
     build_summary_panel_artifact,
     ensure_provider_ready,
     file_manifest,
+    is_instruction_only_draft,
     normalize_task_contract,
     reconcile_task_contract,
     review_contract_result,
@@ -1160,7 +1161,14 @@ def _answer_from_artifacts(task_contract: dict[str, Any], artifacts: list[dict[s
     return "\n".join(lines)
 
 
+def _artifact_draft_content(artifact: dict[str, Any]) -> str:
+    spec = artifact.get("spec") if isinstance(artifact.get("spec"), dict) else {}
+    return str(artifact.get("content") or spec.get("content") or "")
+
+
 def _replace_draft_artifact(artifacts: list[dict[str, Any]], draft: dict[str, Any]) -> list[dict[str, Any]]:
+    if is_instruction_only_draft(_artifact_draft_content(draft)):
+        return artifacts
     without_draft = [artifact for artifact in artifacts if artifact.get("kind") != "file_draft"]
     chart = [artifact for artifact in without_draft if artifact.get("kind") == "chart"]
     supporting = [artifact for artifact in without_draft if artifact.get("kind") != "chart"]
