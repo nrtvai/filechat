@@ -73,7 +73,7 @@ function providerErrorSummary(error: string, fallback = "Provider issue") {
 }
 
 function contextStatus(file: FileRecord) {
-  if (file.status === "ready") return "ready";
+  if (file.status === "ready") return "ready to cite";
   if (file.status === "failed") return "failed";
   return `${Math.round(file.progress * 100)}%`;
 }
@@ -859,6 +859,9 @@ function Transcript(props: {
                 {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
                 )}
+                {message.role === "assistant" && message.citations.length === 0 && (props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
+                  <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
+                )}
               </div>
             </article>
           );
@@ -894,6 +897,24 @@ function Transcript(props: {
 function visibleArtifacts(message: Message, profile: ContextProfile) {
   if (profile.artifact_policy === "all") return message.artifacts;
   return message.artifacts.filter((artifact) => (artifact.display_mode ?? "primary") === "primary");
+}
+
+function NoCitationNotice({ unavailableFileIds = [], files = [] }: { unavailableFileIds?: string[]; files?: FileRecord[] }) {
+  const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
+  const readyLabels = files.filter((file) => file.status === "ready").map((file) => file.name);
+  const failedLabels = files
+    .filter((file) => file.status === "failed")
+    .map((file) => file.error ? `${file.name} (${fileErrorSummary(file)})` : file.name);
+  return (
+    <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="No citations attached">
+      <strong>No citations attached to this answer.</strong>
+      <small>FileChat is being explicit that this response has no retrieved source snippets.</small>
+      {readyLabels.length > 0 && <small>Treat this answer as ungrounded until a cited snippet supports it.</small>}
+      {readyLabels.length > 0 && <small>Available source context: {readyLabels.join(", ")}</small>}
+      {failedLabels.length > 0 && <small>Failed source context: {failedLabels.join(", ")}</small>}
+      {unavailableLabels.length > 0 && <small>Unavailable sources: {unavailableLabels.join(", ")}</small>}
+    </div>
+  );
 }
 
 function SourcesDisclosure({ citations, onCitationClick, minimized }: { citations: Citation[]; onCitationClick: (citation: Citation) => void; minimized: boolean }) {

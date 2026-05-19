@@ -28,27 +28,45 @@ class WorksheetSummary:
     columns: int
     headers: list[str] = field(default_factory=list)
     preview_rows: list[list[str]] = field(default_factory=list)
+    preview_source_rows: list[int] = field(default_factory=list)
+    preview_start_row: int | None = None
+    preview_end_row: int | None = None
     formulas: list[str] = field(default_factory=list)
     raw_delimited: str = ""
 
 
 def spreadsheet_mode_summary(path: Path, ext: str, *, display_name: str | None = None) -> str:
     normalized_ext = ext.lower().lstrip(".")
+    workbook_name = display_name or path.name
     try:
         if normalized_ext in {"csv", "tsv"}:
             worksheets = [_summarize_delimited(path, delimiter="\t" if normalized_ext == "tsv" else ",")]
-        elif normalized_ext in {"xlsx", "xls"}:
+        elif normalized_ext == "xlsx":
             worksheets = _summarize_workbook(path)
+        elif normalized_ext == "xls":
+            raise SpreadsheetModeError(f"Unsupported spreadsheet type for {workbook_name}: xls")
         else:
-            raise SpreadsheetModeError(f"Unsupported spreadsheet type: {ext}")
-    except SpreadsheetModeError:
+            raise SpreadsheetModeError(f"Unsupported spreadsheet type for {workbook_name}: {ext}")
+    except SpreadsheetModeError as exc:
+        if str(exc).startswith("Could not extract spreadsheet summary"):
+            raise _spreadsheet_parse_error(workbook_name, exc) from exc
         raise
     except Exception as exc:  # pragma: no cover - exercised through corrupt workbook integration
-        raise SpreadsheetModeError(f"Could not extract spreadsheet summary: {exc}") from exc
+        raise _spreadsheet_parse_error(workbook_name, exc) from exc
 
     if display_name and normalized_ext in {"csv", "tsv"} and worksheets:
         worksheets[0].name = Path(display_name).stem
-    return _render_summary(display_name or path.name, worksheets)
+    return _render_summary(workbook_name, worksheets)
+
+
+def _spreadsheet_parse_error(workbook_name: str, exc: Exception) -> SpreadsheetModeError:
+    detail = str(exc)
+    prefix = "Could not extract spreadsheet summary"
+    if detail.startswith(f"{prefix} for "):
+        return SpreadsheetModeError(detail)
+    if detail.startswith(f"{prefix}:"):
+        detail = detail.split(":", 1)[1].strip()
+    return SpreadsheetModeError(f"Could not extract spreadsheet summary for {workbook_name}: {detail}")
 
 
 def extract_table_text_from_spreadsheet_summary(text: str) -> str:
@@ -80,15 +98,28 @@ def _summarize_delimited(path: Path, *, delimiter: str) -> WorksheetSummary:
         return WorksheetSummary(name=path.stem, rows=0, columns=0)
 
     headers = [_cell_to_text(cell) for cell in rows[0]]
-    data_rows = rows[1:]
-    width = max((len(row) for row in rows), default=0)
-    preview = [[_cell_to_text(cell) for cell in row] for row in data_rows[:MAX_PREVIEW_ROWS]]
+    preview: list[list[str]] = []
+    preview_source_rows: list[int] = []
+    non_empty_data_rows = 0
+    max_column = _last_non_empty_index(headers)
+    for source_row_number, row in enumerate(rows[1:], start=2):
+        values = [_cell_to_text(cell) for cell in row]
+        if not any(value != "" for value in values):
+            continue
+        non_empty_data_rows += 1
+        max_column = max(max_column, _last_non_empty_index(values))
+        if len(preview) < MAX_PREVIEW_ROWS:
+            preview.append(values)
+            preview_source_rows.append(source_row_number)
     return WorksheetSummary(
         name=path.stem,
-        rows=len(data_rows),
-        columns=width,
+        rows=non_empty_data_rows,
+        columns=max_column,
         headers=headers[:MAX_HEADERS],
         preview_rows=preview,
+        preview_source_rows=preview_source_rows,
+        preview_start_row=preview_source_rows[0] if preview_source_rows else None,
+        preview_end_row=preview_source_rows[-1] if preview_source_rows else None,
         raw_delimited=raw_text.strip(),
     )
 
@@ -111,17 +142,19 @@ def _summarize_workbook(path: Path) -> list[WorksheetSummary]:
             first_row = next(rows_iter, None)
             headers = [_cell_to_text(cell.value) for cell in first_row] if first_row else []
             preview_rows: list[list[str]] = []
+            preview_source_rows: list[int] = []
             formulas: list[str] = []
             non_empty_data_rows = 0
             max_column = 0
 
-            for row in rows_iter:
+            for worksheet_row_number, row in enumerate(rows_iter, start=2):
                 values = [_cell_to_text(cell.value) for cell in row]
                 if any(value != "" for value in values):
                     non_empty_data_rows += 1
                     max_column = max(max_column, _last_non_empty_index(values))
                     if len(preview_rows) < MAX_PREVIEW_ROWS:
                         preview_rows.append(values)
+                        preview_source_rows.append(worksheet_row_number)
                 for cell in row:
                     if isinstance(cell.value, str) and cell.value.startswith("=") and len(formulas) < MAX_FORMULAS:
                         formulas.append(f"{worksheet.title}!{cell.coordinate} = {cell.value}")
@@ -134,6 +167,9 @@ def _summarize_workbook(path: Path) -> list[WorksheetSummary]:
                     columns=max(header_width, max_column),
                     headers=headers[:MAX_HEADERS],
                     preview_rows=preview_rows,
+                    preview_source_rows=preview_source_rows,
+                    preview_start_row=preview_source_rows[0] if preview_source_rows else None,
+                    preview_end_row=preview_source_rows[-1] if preview_source_rows else None,
                     formulas=formulas,
                 )
             )
@@ -159,9 +195,9 @@ def _render_summary(workbook_name: str, worksheets: Iterable[WorksheetSummary]) 
             ]
         )
         if sheet.headers:
-            lines.append(f"Headers: {', '.join(sheet.headers)}")
+            lines.append(f"Headers: {', '.join(sheet.headers)} (source row 1)")
         if sheet.preview_rows:
-            lines.extend(["", "Preview:", _markdown_table(sheet.headers, sheet.preview_rows)])
+            lines.extend(["", _preview_label(sheet), _markdown_table(sheet.headers, sheet.preview_rows)])
         if sheet.formulas:
             lines.extend(["", "Formulas:"])
             lines.extend(f"- {formula}" for formula in sheet.formulas)
@@ -198,7 +234,7 @@ def _extract_preview_table_as_csv(text: str) -> str:
     in_preview = False
     for line in lines:
         stripped = line.strip()
-        if stripped == "Preview:":
+        if _is_preview_label(stripped):
             if table_lines:
                 preview_tables.append(table_lines)
                 table_lines = []
@@ -250,6 +286,37 @@ def _cell_to_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _preview_label(sheet: WorksheetSummary) -> str:
+    if sheet.preview_source_rows:
+        return f"Preview (source rows {_format_source_rows(sheet.preview_source_rows)}):"
+    if sheet.preview_start_row is not None and sheet.preview_end_row is not None:
+        return f"Preview (source rows {sheet.preview_start_row}-{sheet.preview_end_row}):"
+    return "Preview:"
+
+
+def _format_source_rows(row_numbers: list[int]) -> str:
+    ranges: list[str] = []
+    start = previous = row_numbers[0]
+    for row_number in row_numbers[1:]:
+        if row_number == previous + 1:
+            previous = row_number
+            continue
+        ranges.append(_format_source_row_range(start, previous))
+        start = previous = row_number
+    ranges.append(_format_source_row_range(start, previous))
+    return ", ".join(ranges)
+
+
+def _format_source_row_range(start: int, end: int) -> str:
+    if start == end:
+        return str(start)
+    return f"{start}-{end}"
+
+
+def _is_preview_label(value: str) -> bool:
+    return value == "Preview:" or (value.startswith("Preview (") and value.endswith(":"))
 
 
 def _last_non_empty_index(values: list[str]) -> int:
