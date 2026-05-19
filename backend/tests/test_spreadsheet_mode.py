@@ -76,6 +76,46 @@ def test_csv_summary_is_excel_lane_artifact_with_columns_and_sample(tmp_path: Pa
     assert "Region,Revenue,Margin" in summary
 
 
+def test_csv_summary_labels_headers_with_source_row_one(tmp_path: Path):
+    csv_path = tmp_path / "quarterly_sales.csv"
+    csv_path.write_text("Region,Revenue\nNorth,1200\n", encoding="utf-8")
+
+    summary = spreadsheet_mode_summary(csv_path, "csv")
+
+    assert "Headers: Region, Revenue (source row 1)" in summary
+
+
+def test_csv_summary_labels_preview_with_source_row_range(tmp_path: Path):
+    csv_path = tmp_path / "quarterly_sales.csv"
+    csv_path.write_text(
+        "Region,Revenue\nNorth,1200\nSouth,900\nWest,700\nEast,650\nCentral,500\nOnline,450\n",
+        encoding="utf-8",
+    )
+
+    summary = spreadsheet_mode_summary(csv_path, "csv")
+
+    assert "Preview (source rows 2-6):" in summary
+    assert "Rows: 6" in summary
+    assert "| Online | 450 |" not in summary
+
+
+def test_csv_summary_skips_blank_rows_in_preview_and_row_count(tmp_path: Path):
+    csv_path = tmp_path / "gapped_sales.csv"
+    csv_path.write_text(
+        "Region,Revenue\nNorth,1200\n\nSouth,900\nWest,700\nEast,650\nCentral,500\nOnline,450\n",
+        encoding="utf-8",
+    )
+
+    summary = spreadsheet_mode_summary(csv_path, "csv")
+
+    assert "Rows: 6" in summary
+    assert "Preview (source rows 2, 4-7):" in summary
+    assert "| North | 1200 |" in summary
+    assert "| South | 900 |" in summary
+    assert "|  |" not in summary
+    assert "| Online | 450 |" not in summary
+
+
 def test_parse_table_uses_raw_data_from_excel_mode_csv_summary():
     summary = (
         "# Excel Mode Spreadsheet Summary\n\n"
@@ -135,17 +175,68 @@ def test_xlsx_summary_reports_worksheets_dimensions_and_formulas(tmp_path: Path)
     assert "Rows: 2" in summary
     assert "Columns: 4" in summary
     assert "Headers: Month, Revenue, Cost, Profit" in summary
+    assert "Preview (source rows 2-3):" in summary
     assert "Formulas:" in summary
     assert "Plan!D2 = =B2-C2" in summary
     assert "Plan!D3 = =B3-C3" in summary
     assert "Worksheet: Assumptions" in summary
 
 
-def test_spreadsheet_parser_errors_are_normalized(tmp_path: Path):
+def test_xlsx_summary_labels_preview_with_actual_gapped_source_rows(tmp_path: Path):
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook_path = tmp_path / "gapped.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Gaps"
+    ws.append(["Name", "Value"])
+    ws["A3"] = "Actual row 3"
+    ws["B3"] = 30
+    ws["A5"] = "Actual row 5"
+    ws["B5"] = 50
+    ws["A6"] = "Actual row 6"
+    ws["B6"] = 60
+    ws["A7"] = "Actual row 7"
+    ws["B7"] = 70
+    wb.save(workbook_path)
+
+    summary = spreadsheet_mode_summary(workbook_path, "xlsx")
+
+    assert "Rows: 4" in summary
+    assert "Preview (source rows 3, 5-7):" in summary
+    assert "Preview (source rows 2-5):" not in summary
+    assert "| Actual row 3 | 30 |" in summary
+    assert "| Actual row 5 | 50 |" in summary
+
+
+def test_unsupported_spreadsheet_type_error_names_workbook(tmp_path: Path):
+    unsupported = tmp_path / "legacy.xls"
+    unsupported.write_text("old binary excel placeholder", encoding="utf-8")
+
+    with pytest.raises(SpreadsheetModeError) as excinfo:
+        spreadsheet_mode_summary(unsupported, "xls", display_name="client_legacy.xls")
+
+    assert str(excinfo.value) == "Unsupported spreadsheet type for client_legacy.xls: xls"
+
+
+def test_spreadsheet_parser_errors_are_normalized_with_workbook_name(tmp_path: Path):
     broken = tmp_path / "broken.xlsx"
     broken.write_text("not a workbook", encoding="utf-8")
 
     with pytest.raises(SpreadsheetModeError) as excinfo:
         spreadsheet_mode_summary(broken, "xlsx")
 
-    assert str(excinfo.value).startswith("Could not extract spreadsheet summary:")
+    message = str(excinfo.value)
+    assert message.startswith("Could not extract spreadsheet summary for broken.xlsx:")
+    assert "not a workbook" in message.lower() or "zip" in message.lower()
+
+
+def test_spreadsheet_parser_errors_use_display_name_for_upload_context(tmp_path: Path):
+    broken = tmp_path / "tmp-upload-body"
+    broken.write_text("not a workbook", encoding="utf-8")
+
+    with pytest.raises(SpreadsheetModeError) as excinfo:
+        spreadsheet_mode_summary(broken, "xlsx", display_name="client_budget.xlsx")
+
+    message = str(excinfo.value)
+    assert message.startswith("Could not extract spreadsheet summary for client_budget.xlsx:")
+    assert "tmp-upload-body" not in message

@@ -215,6 +215,12 @@ export interface AgentRun {
   completed_at?: string | null;
 }
 
+export interface MessageGrounding {
+  status: "cited" | "no_citations" | "not_applicable";
+  notice: string;
+  detail: string;
+}
+
 export interface Message {
   id: string;
   session_id: string;
@@ -222,6 +228,7 @@ export interface Message {
   content: string;
   unavailable_file_ids: string[];
   created_at: string;
+  grounding?: MessageGrounding;
   citations: Citation[];
   artifacts: Artifact[];
   prompt_tokens?: number;

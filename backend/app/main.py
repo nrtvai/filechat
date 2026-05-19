@@ -326,6 +326,35 @@ def artifacts_for(message_id: str):
 
 def message_out(row) -> MessageOut:
     message_usage = usage_for_message(row["id"])
+    citations = [
+        {
+            "id": c["id"],
+            "message_id": c["message_id"],
+            "file_id": c["file_id"],
+            "chunk_id": c["chunk_id"],
+            "source_label": c["source_label"],
+            "location": c["location"],
+            "excerpt": c["excerpt"],
+            "score": c["score"],
+            "ordinal": c["ordinal"],
+        }
+        for c in citations_for(row["id"])
+    ]
+    grounding = {"status": "not_applicable", "notice": "", "detail": ""}
+    if row["role"] == "assistant":
+        grounding = (
+            {
+                "status": "cited",
+                "notice": "Citations attached.",
+                "detail": f"This answer includes {len(citations)} retrieved source snippet(s).",
+            }
+            if citations
+            else {
+                "status": "no_citations",
+                "notice": "No citations attached to this answer.",
+                "detail": "FileChat is being explicit that this response has no retrieved source snippets.",
+            }
+        )
     return MessageOut(
         id=row["id"],
         session_id=row["session_id"],
@@ -333,20 +362,8 @@ def message_out(row) -> MessageOut:
         content=row["content"],
         unavailable_file_ids=json_loads(row["unavailable_file_ids"], []),
         created_at=row["created_at"],
-        citations=[
-            {
-                "id": c["id"],
-                "message_id": c["message_id"],
-                "file_id": c["file_id"],
-                "chunk_id": c["chunk_id"],
-                "source_label": c["source_label"],
-                "location": c["location"],
-                "excerpt": c["excerpt"],
-                "score": c["score"],
-                "ordinal": c["ordinal"],
-            }
-            for c in citations_for(row["id"])
-        ],
+        grounding=grounding,
+        citations=citations,
         artifacts=[
             {
                 "id": a["id"],

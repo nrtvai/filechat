@@ -128,6 +128,12 @@ class ArtifactOut(BaseModel):
     created_at: str
 
 
+class MessageGroundingOut(BaseModel):
+    status: Literal["cited", "no_citations", "not_applicable"]
+    notice: str = ""
+    detail: str = ""
+
+
 class MessageOut(BaseModel):
     id: str
     session_id: str
@@ -135,6 +141,7 @@ class MessageOut(BaseModel):
     content: str
     unavailable_file_ids: list[str] = Field(default_factory=list)
     created_at: str
+    grounding: MessageGroundingOut = Field(default_factory=lambda: MessageGroundingOut(status="not_applicable"))
     citations: list[CitationOut] = Field(default_factory=list)
     artifacts: list[ArtifactOut] = Field(default_factory=list)
     prompt_tokens: int = 0

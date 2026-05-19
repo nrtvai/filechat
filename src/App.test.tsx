@@ -413,6 +413,57 @@ describe("App", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_new/runs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("warns that an answer with ready files but no citations is ungrounded", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer has no cited snippets.");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("No citations attached to this answer.")).toBeInTheDocument();
+    expect(screen.getByText("Treat this answer as ungrounded until a cited snippet supports it.")).toBeVisible();
+    expect(screen.getByText("Available source context: report.txt")).toBeVisible();
+  });
+
+  it("names failed source context when an uncited answer has skipped files", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer could not cite every attached source.");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 2));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 2)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_report", "report.txt"),
+        file("fil_notes", "notes.pdf", "failed", "OCR failed")
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("No citations attached to this answer.")).toBeInTheDocument();
+    expect(screen.getByText("Available source context: report.txt")).toBeVisible();
+    expect(screen.getByText("Failed source context: notes.pdf (OCR failed)")).toBeVisible();
+  });
+
   it("ignores the composer shortcut during IME composition", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -559,6 +610,7 @@ describe("App", () => {
 
     const remove = await screen.findByRole("button", { name: "Remove report.txt from context" });
     expect(screen.getByText("report.txt")).toBeInTheDocument();
+    expect(screen.getByText("ready to cite")).toBeInTheDocument();
     fireEvent.click(remove);
 
     await waitFor(() => {
@@ -1152,6 +1204,58 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByText("Second offline ask")).toBeInTheDocument());
     expect(consoleError.mock.calls.some((call) => String(call[0]).includes("Encountered two children with the same key"))).toBe(false);
+  });
+
+  it("labels source-less assistant answers so grounded chat does not imply hidden citations", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "I could not find that in the attached file.");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("I could not find that in the attached file.")).toBeInTheDocument();
+    expect(screen.getByText("No citations attached to this answer.")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "No citations attached" })).toHaveTextContent("no retrieved source snippets");
+    expect(screen.getByText("FileChat is being explicit that this response has no retrieved source snippets."))
+      .toBeInTheDocument();
+  });
+
+  it("names unavailable files on source-less assistant answers", async () => {
+    const missing = file("fil_missing", "archived-notes.pdf", "failed", "File was detached before retrieval");
+    const answer = {
+      ...message("msg_answer", "ses_new", "assistant", "I could only answer from available context."),
+      unavailable_file_ids: ["fil_missing", "fil_deleted"]
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([missing]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("I could only answer from available context.")).toBeInTheDocument();
+    expect(screen.getByText("No citations attached to this answer.")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable sources: archived-notes.pdf, fil_deleted")).toBeInTheDocument();
   });
 
   it("renders per-message costs and the session cost total", async () => {

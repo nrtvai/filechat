@@ -99,6 +99,7 @@ def test_filechat_original_smoke_returns_grounded_answer_with_provenance(monkeyp
         payload = answer.json()
         assert "42" in payload["content"]
         assert payload["citations"]
+        assert payload["grounding"]["status"] == "cited"
         citation = payload["citations"][0]
         assert citation["source_label"] == "warehouse_memo.txt"
         assert citation["location"] == "chunk 1"
@@ -191,6 +192,9 @@ def test_unrelated_question_can_return_grounded_refusal_without_citations(monkey
         payload = answer.json()
         assert payload["content"] == "I could not find that answer in the attached sources."
         assert payload["citations"] == []
+        assert payload["grounding"]["status"] == "no_citations"
+        assert payload["grounding"]["notice"] == "No citations attached to this answer."
+        assert "no retrieved source snippets" in payload["grounding"]["detail"]
 
 
 def test_reupload_same_file_reuses_cached_file(monkeypatch, tmp_path):
