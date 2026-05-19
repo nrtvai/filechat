@@ -1,0 +1,107 @@
+import { describe, expect, it } from "vitest";
+import { validateLocalHtmlWorkflowApp } from "./workflowValidation";
+
+describe("validateLocalHtmlWorkflowApp", () => {
+  it("accepts a deterministic local HTML workflow app with Mac and Windows run instructions", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      html: "<!doctype html><html><body><script>function runWorkflow(input){ return input; }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["sales_orders.csv", "warehouse_stock_units.csv"],
+        manualStepsReplaced: ["copy weekly sales into the reorder sheet", "edit reorder quantities by SKU"],
+        transforms: [
+          { id: "join-sales-stock", description: "Join sales to stock by SKU", deterministic: true },
+        ],
+        outputs: ["reorder_plan.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("rejects generic spreadsheet Q&A artifacts that do not ship a runnable deterministic local app", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Ask questions about a spreadsheet",
+      html: "<div>Upload a spreadsheet and ask anything.</div>",
+      runInstructions: { mac: "", windows: "" },
+      workflow: {
+        inputs: ["workbook.xlsx"],
+        manualStepsReplaced: [],
+        transforms: [{ id: "answer", description: "Answer user questions", deterministic: false }],
+        outputs: [],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      "html must be a complete self-contained local HTML document with <!doctype html>, <html>, and inline <script> tags",
+      "runInstructions.mac must explain how to open/run the local HTML app on macOS",
+      "runInstructions.windows must explain how to open/run the local HTML app on Windows",
+      "workflow.manualStepsReplaced must list at least one copy/paste/edit step being automated",
+      "workflow.transforms must all be deterministic coded transforms",
+      "workflow.outputs must list at least one generated spreadsheet/workflow output",
+    ]);
+  });
+
+  it("rejects generic browser instructions and vague manual steps", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      html: "<!doctype html><html><body><script>function runWorkflow(input){ return input; }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Open index.html in Chrome.",
+      },
+      workflow: {
+        inputs: ["sales_orders.csv"],
+        manualStepsReplaced: ["review the workbook"],
+        transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
+        outputs: ["reorder_plan.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("runInstructions.windows must explain how to open/run the local HTML app on Windows");
+    expect(result.errors).toContain("workflow.manualStepsReplaced must list at least one copy/paste/edit step being automated");
+  });
+
+  it("rejects external or linked asset dependencies so the generated app remains local", () => {
+    const externalScriptResult = validateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      html: '<!doctype html><html><body><script src="https://cdn.example.test/app.js"></script></body></html>',
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["sales_orders.csv"],
+        manualStepsReplaced: ["copy weekly sales into the reorder sheet"],
+        transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
+        outputs: ["reorder_plan.csv"],
+      },
+    });
+    const linkedCssResult = validateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      html: '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><script>function runWorkflow(input){ return input; }</script></body></html>',
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["sales_orders.csv"],
+        manualStepsReplaced: ["copy weekly sales into the reorder sheet"],
+        transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
+        outputs: ["reorder_plan.csv"],
+      },
+    });
+
+    expect(externalScriptResult.ok).toBe(false);
+    expect(externalScriptResult.errors).toContain("html must be a complete self-contained local HTML document with <!doctype html>, <html>, and inline <script> tags");
+    expect(linkedCssResult.ok).toBe(false);
+    expect(linkedCssResult.errors).toContain("html must be a complete self-contained local HTML document with <!doctype html>, <html>, and inline <script> tags");
+  });
+});
