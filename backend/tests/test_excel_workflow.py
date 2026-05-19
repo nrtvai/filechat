@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.excel_workflow import build_excel_workflow_answer
+from backend.app.excel_workflow import build_excel_workflow_answer, build_excel_workflow_html_app
 
 
 def test_reconcile_uses_actual_preview_source_rows_for_gapped_xlsx_summary():
@@ -247,3 +247,105 @@ def test_reconcile_reports_duplicate_key_rows_before_comparing():
     assert "Duplicate key values found:" in result["answer"]
     assert "`A1` appears 2 times in forecast.csv / forecast rows 2, 3" in result["answer"]
     assert result["evidence"]["duplicate_key_count"] == 1
+
+
+def test_builds_standalone_local_html_workflow_runtime_for_reconciliation():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "B2,20\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "B2,25\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert html.startswith("<!doctype html>")
+    assert "Spreadsheet Workflow Automator" in html
+    assert "window.__WORKFLOW__" in html
+    assert "compareWorkflow" in html
+    assert '"sharedKey":"SKU"' in html
+    assert "B2" in html
+    assert "forecast.csv" in html
+    assert "actuals.csv" in html
+    assert "http://" not in html
+    assert "https://" not in html
+
+
+def test_local_html_runtime_reports_duplicate_keys_and_escapes_script_end_tags():
+    hostile_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast</script>.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "A1,12\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast</script>.csv", "text": hostile_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "function duplicateKeyWarnings" in html
+    assert "const duplicateWarnings = duplicateKeyWarnings(workflow.tables, key);" in html
+    assert "Duplicate key values found:" in html
+    assert "</script>.csv" not in html
+    assert "forecast<\\/script>.csv" in html

@@ -139,6 +139,16 @@ def test_excel_workflow_smoke_reconciles_multiple_csvs_with_row_provenance(monke
         assert "`B-200` is missing from orders.csv / orders" in payload["content"]
         assert "`C-300` is missing from inventory.csv / inventory" in payload["content"]
         assert {citation["source_label"] for citation in payload["citations"]} == {"inventory.csv", "orders.csv"}
+        html_artifacts = [artifact for artifact in payload["artifacts"] if artifact["title"] == "Spreadsheet Workflow Automator HTML app"]
+        assert len(html_artifacts) == 1
+        html_artifact = html_artifacts[0]
+        assert html_artifact["kind"] == "file_draft"
+        assert html_artifact["display_mode"] == "supporting"
+        assert html_artifact["spec"]["filename"] == "spreadsheet-workflow-automator.html"
+        assert html_artifact["spec"]["format"] == "html"
+        assert html_artifact["spec"]["content"].startswith("<!doctype html>")
+        assert "window.__WORKFLOW__" in html_artifact["spec"]["content"]
+        assert "function duplicateKeyWarnings" in html_artifact["spec"]["content"]
 
 
 def test_generic_summary_question_answers_from_ready_file(monkeypatch, tmp_path):

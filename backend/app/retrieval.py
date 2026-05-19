@@ -72,7 +72,7 @@ from .artifact_advisor import (
 )
 from .artifacts import ValidatedArtifact, validate_artifacts_with_report
 from .database import connect
-from .excel_workflow import build_excel_workflow_answer
+from .excel_workflow import build_excel_workflow_answer, build_excel_workflow_html_app
 from .models import CitationOut
 from .openrouter import ChatResult, OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
 from .orchestration import build_preflight, is_broad_create_request
@@ -1202,6 +1202,7 @@ def _try_excel_workflow_answer(run_id: str, session_id: str, question: str) -> s
     workflow = build_excel_workflow_answer(question, source_packet.file_texts, sources)
     if not workflow:
         return None
+    html_app = build_excel_workflow_html_app(question, source_packet.file_texts, sources)
 
     start_run(run_id)
     record_run_event(
@@ -1216,7 +1217,7 @@ def _try_excel_workflow_answer(run_id: str, session_id: str, question: str) -> s
     task_contract = {
         "intent": "excel_workflow",
         "deliverable": "deterministic spreadsheet reconciliation",
-        "required_outputs": ["excel_workflow_report"],
+        "required_outputs": ["excel_workflow_report", "local_html_workflow_app"],
         "success_criteria": [
             "Keep Excel Workflow Automation separate from FileChat Original document Q&A.",
             "Use only uploaded spreadsheet data.",
@@ -1248,14 +1249,46 @@ def _try_excel_workflow_answer(run_id: str, session_id: str, question: str) -> s
         output_json=workflow.get("evidence", {}),
     )
     assistant_id = insert_message(session_id, "assistant", str(workflow["answer"]), source_packet.unavailable)
-    insert_citations(assistant_id, sources, [int(source_id) for source_id in workflow.get("cited_source_ids", [])])
+    cited_ids = [int(source_id) for source_id in workflow.get("cited_source_ids", [])]
+    insert_citations(assistant_id, sources, cited_ids)
+    artifact_ids: list[str] = []
+    if html_app:
+        cited_source_ids = set(cited_ids)
+        source_chunk_ids = [
+            str(source["chunk_id"])
+            for source in sources
+            if int(source.get("source_id", 0)) in cited_source_ids and source.get("chunk_id")
+        ]
+        artifact_ids = insert_artifacts(
+            session_id,
+            assistant_id,
+            [
+                ValidatedArtifact(
+                    kind="file_draft",
+                    title="Spreadsheet Workflow Automator HTML app",
+                    caption="Standalone local HTML app that re-runs this reconciliation in the browser.",
+                    display_mode="supporting",
+                    source_chunk_ids=list(dict.fromkeys(source_chunk_ids)),
+                    spec={
+                        "filename": "spreadsheet-workflow-automator.html",
+                        "format": "html",
+                        "content": html_app,
+                    },
+                )
+            ],
+        )
     attach_run_messages(run_id, assistant_message_id=assistant_id)
     set_action(
         run_id,
         "persist_response",
         "completed",
         output_summary="Saved Excel Workflow Automation result",
-        output_json={"assistant_message_id": assistant_id, "citation_count": len(workflow.get("cited_source_ids", []))},
+        output_json={
+            "assistant_message_id": assistant_id,
+            "citation_count": len(cited_ids),
+            "artifact_ids": artifact_ids,
+            "local_html_app": bool(html_app),
+        },
     )
     complete_run(run_id, assistant_message_id=assistant_id)
     return assistant_id

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -124,6 +125,149 @@ def build_excel_workflow_answer(question: str, file_texts: list[dict[str, Any]],
             "table_rows": _table_row_counts(tables),
         },
     }
+
+
+def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]], sources: list[dict[str, Any]]) -> str | None:
+    """Return a standalone local HTML app for a parsed spreadsheet workflow.
+
+    The generated file is deliberately dependency-free: it embeds the parsed
+    worksheet rows as JSON and includes a tiny browser runtime that can re-run
+    the same key-based reconciliation after a user edits the embedded data. It
+    is intended to be saved as an .html file and opened directly on Mac/Windows.
+    """
+
+    if not is_excel_workflow_request(question):
+        return None
+    tables = _workflow_tables(file_texts, sources)
+    if len(tables) < 2:
+        return None
+    key = _shared_key(tables)
+    answer = build_excel_workflow_answer(question, file_texts, sources)
+    manifest = {
+        "title": "Spreadsheet Workflow Automator",
+        "question": question,
+        "mode": "reconcile" if key else "schema_only",
+        "sharedKey": key,
+        "answer": answer["answer"] if answer else "",
+        "tables": [
+            {
+                "fileName": table.file_name,
+                "sheetName": table.sheet_name,
+                "columns": table.columns,
+                "rows": table.rows,
+                "sourceRows": table.source_rows or list(range(2, len(table.rows) + 2)),
+            }
+            for table in tables
+        ],
+    }
+    payload = json.dumps(manifest, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spreadsheet Workflow Automator</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; color: #172033; background: #f7f8fb; }}
+    main {{ max-width: 1100px; margin: 0 auto; }}
+    section {{ background: white; border: 1px solid #d9deea; border-radius: 12px; padding: 1rem; margin: 1rem 0; }}
+    textarea {{ width: 100%; min-height: 12rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }}
+    pre {{ white-space: pre-wrap; background: #101827; color: #eef4ff; padding: 1rem; border-radius: 10px; }}
+    button {{ border: 0; border-radius: 8px; padding: .65rem 1rem; background: #2457d6; color: white; font-weight: 700; cursor: pointer; }}
+    .grid {{ display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Spreadsheet Workflow Automator</h1>
+  <p>Standalone local runtime: edit rows below and re-run the deterministic reconciliation in this browser. No network or spreadsheet copy/paste is required.</p>
+  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button></section>
+  <section><h2>Parsed worksheet data</h2><div id="tables" class="grid"></div></section>
+</main>
+<script>
+window.__WORKFLOW__ = {payload};
+function rowRef(table, index) {{ return `${{table.fileName}} / ${{table.sheetName}} row ${{table.sourceRows[index] || index + 2}}`; }}
+function indexByKey(table, key) {{
+  const index = new Map();
+  table.rows.forEach((row, i) => {{ const value = String(row[key] || '').trim(); if (value && !index.has(value)) index.set(value, {{row, index: i}}); }});
+  return index;
+}}
+function duplicateKeyWarnings(tables, key) {{
+  const warnings = [];
+  for (const table of tables) {{
+    const rowsByKey = new Map();
+    table.rows.forEach((row, i) => {{
+      const value = String(row[key] || '').trim();
+      if (!value) return;
+      const sourceRow = table.sourceRows[i] || i + 2;
+      if (!rowsByKey.has(value)) rowsByKey.set(value, []);
+      rowsByKey.get(value).push(sourceRow);
+    }});
+    Array.from(rowsByKey.keys()).sort().forEach(value => {{
+      const sourceRows = rowsByKey.get(value);
+      if (sourceRows.length > 1) warnings.push(`\\`${{value}}\\` appears ${{sourceRows.length}} times in ${{table.fileName}} / ${{table.sheetName}} rows ${{sourceRows.join(', ')}}`);
+    }});
+  }}
+  return warnings;
+}}
+function compareWorkflow(workflow) {{
+  const key = workflow.sharedKey;
+  if (!key) return workflow.answer || 'No shared key was detected; compare schemas manually from the embedded worksheet data.';
+  const indexes = workflow.tables.map(table => indexByKey(table, key));
+  const keys = Array.from(new Set(indexes.flatMap(index => Array.from(index.keys())))).sort();
+  const lines = [`Excel Mode reconciliation (local HTML runtime)`, `Compared ${{workflow.tables.length}} spreadsheet tables on shared key \\`${{key}}\\`.`, ''];
+  const duplicateWarnings = duplicateKeyWarnings(workflow.tables, key);
+  if (duplicateWarnings.length) {{
+    lines.push('Duplicate key values found:');
+    duplicateWarnings.forEach(warning => lines.push(`- ${{warning}}`));
+    lines.push('');
+  }}
+  let issues = 0;
+  for (const value of keys) {{
+    const present = workflow.tables.map((table, i) => [table, indexes[i].get(value)]).filter(([, hit]) => hit);
+    if (present.length !== workflow.tables.length) {{
+      issues += 1;
+      const missing = workflow.tables.filter((_, i) => !indexes[i].has(value)).map(t => `${{t.fileName}} / ${{t.sheetName}}`).join(', ');
+      const found = present.map(([table, hit]) => rowRef(table, hit.index)).join(', ');
+      lines.push(`- \\`${{value}}\\` is missing from ${{missing}}; present in ${{found}}.`);
+      continue;
+    }}
+    const common = workflow.tables[0].columns.filter(column => column !== key && workflow.tables.every(table => table.columns.includes(column)));
+    const diffs = [];
+    for (const column of common) {{
+      const values = present.map(([table, hit]) => [table, String(hit.row[column] || '').trim(), hit.index]);
+      if (new Set(values.map(([, cell]) => cell)).size > 1) diffs.push(`${{column}}: ` + values.map(([table, cell, rowIndex]) => `${{cell || '(blank)'}} at ${{rowRef(table, rowIndex)}}`).join('; '));
+    }}
+    if (diffs.length) {{ issues += 1; lines.push(`- \\`${{value}}\\` differs — ${{diffs.join(' | ')}}.`); }}
+  }}
+  if (!issues) lines.push('No key presence or shared-column value differences were found in the parsed rows.');
+  return lines.join('\\\\n');
+}}
+function render() {{
+  const workflow = window.__WORKFLOW__;
+  document.getElementById('report').textContent = compareWorkflow(workflow);
+  const container = document.getElementById('tables');
+  container.textContent = '';
+  workflow.tables.forEach((table, i) => {{
+    const article = document.createElement('article');
+    const heading = document.createElement('h3');
+    const area = document.createElement('textarea');
+    heading.textContent = `${{table.fileName}} / ${{table.sheetName}}`;
+    area.dataset.table = String(i);
+    area.value = JSON.stringify(table.rows, null, 2);
+    article.append(heading, area);
+    container.append(article);
+  }});
+}}
+document.getElementById('run').addEventListener('click', () => {{
+  document.querySelectorAll('textarea[data-table]').forEach(area => {{ window.__WORKFLOW__.tables[Number(area.dataset.table)].rows = JSON.parse(area.value); }});
+  document.getElementById('report').textContent = compareWorkflow(window.__WORKFLOW__);
+}});
+render();
+</script>
+</body>
+</html>
+"""
 
 
 def _workflow_tables(file_texts: list[dict[str, Any]], sources: list[dict[str, Any]]) -> list[WorkflowTable]:

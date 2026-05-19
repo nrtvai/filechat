@@ -917,6 +917,14 @@ function NoCitationNotice({ unavailableFileIds = [], files = [] }: { unavailable
   );
 }
 
+function sourceSummaryLabel(citations: Citation[]) {
+  const labels = Array.from(new Set(citations.map((citation) => citation.source_label).filter(Boolean)));
+  if (labels.length === 0) return `Sources · ${citations.length}`;
+  const visibleLabels = labels.slice(0, 2).join(", ");
+  const remaining = labels.length - 2;
+  return `Sources · ${citations.length} · ${visibleLabels}${remaining > 0 ? ` +${remaining} more` : ""}`;
+}
+
 function SourcesDisclosure({ citations, onCitationClick, minimized }: { citations: Citation[]; onCitationClick: (citation: Citation) => void; minimized: boolean }) {
   if (!minimized) {
     return (
@@ -931,7 +939,7 @@ function SourcesDisclosure({ citations, onCitationClick, minimized }: { citation
   }
   return (
     <details className="source-strip compact">
-      <summary>Sources · {citations.length}</summary>
+      <summary>{sourceSummaryLabel(citations)}</summary>
       <div>
         {citations.map((citation) => (
           <button key={citation.id} onClick={() => onCitationClick(citation)}>

@@ -413,6 +413,30 @@ describe("App", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_new/runs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("keeps source filenames visible on collapsed cited answers", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites local snippets.");
+    answer.citations = [citation("cit_1")];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const summary = await screen.findByText("Sources · 1 · report.txt");
+    expect(summary).toBeVisible();
+  });
+
   it("warns that an answer with ready files but no citations is ungrounded", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer has no cited snippets.");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1832,7 +1856,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Sources · 1")).toBeInTheDocument();
+    expect(await screen.findByText("Sources · 1 · report.txt")).toBeInTheDocument();
   });
 
   it("surfaces persisted agent activity in the runs panel", async () => {
