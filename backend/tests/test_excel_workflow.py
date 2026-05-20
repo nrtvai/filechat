@@ -319,6 +319,62 @@ def test_builds_standalone_local_html_workflow_runtime_for_reconciliation():
     assert "https://" not in html
 
 
+def test_local_html_app_shows_local_run_instructions_and_workflow_manifest():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU<script>, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU<script>,Qty\n"
+        "A1,10\n"
+        "B2,20\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU<script>, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU<script>,Qty\n"
+        "A1,10\n"
+        "B2,25\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "compare <img src=x onerror=alert(1)> these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "How to run this local app" in html
+    assert "Mac:" in html
+    assert "Windows:" in html
+    assert "Open this generated .html file" in html
+    assert "Workflow manifest" in html
+    assert "Title: Spreadsheet Workflow Automator" in html
+    assert "Question: compare &lt;img src=x onerror=alert(1)&gt; these spreadsheets" in html
+    assert "Mode: reconcile" in html
+    assert "Shared key: SKU&lt;script&gt;" in html
+    assert "Table count: 2" in html
+    assert "http://" not in html
+    assert "https://" not in html
+
+
 def test_standalone_local_html_runtime_script_is_valid_javascript():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"

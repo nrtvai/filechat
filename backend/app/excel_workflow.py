@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import html as html_lib
 import io
 import json
 import re
@@ -143,11 +144,13 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         return None
     key = _shared_key(tables)
     answer = build_excel_workflow_answer(question, file_texts, sources)
+    mode = "reconcile" if key else "schema_only"
     manifest = {
         "title": "Spreadsheet Workflow Automator",
         "question": question,
-        "mode": "reconcile" if key else "schema_only",
+        "mode": mode,
         "sharedKey": key,
+        "tableCount": len(tables),
         "answer": answer["answer"] if answer else "",
         "tables": [
             {
@@ -161,6 +164,8 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         ],
     }
     payload = json.dumps(manifest, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    question_html = html_lib.escape(question)
+    shared_key_html = html_lib.escape(key or "(none detected)")
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -181,6 +186,25 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
 <main>
   <h1>Spreadsheet Workflow Automator</h1>
   <p>Standalone local runtime: edit rows below and re-run the deterministic reconciliation in this browser. No network or spreadsheet copy/paste is required.</p>
+  <section>
+    <h2>How to run this local app</h2>
+    <ol>
+      <li>Save this generated .html file somewhere you control, such as Desktop or Documents.</li>
+      <li>Mac: double-click the file in Finder, or right-click and choose Open With &gt; your browser.</li>
+      <li>Windows: double-click the file in File Explorer, or right-click and choose Open with &gt; your browser.</li>
+      <li>Open this generated .html file directly from disk. The workflow data and reconciliation logic are embedded for local use.</li>
+    </ol>
+  </section>
+  <section>
+    <h2>Workflow manifest</h2>
+    <dl>
+      <dt>Title</dt><dd>Title: Spreadsheet Workflow Automator</dd>
+      <dt>Question</dt><dd>Question: {question_html}</dd>
+      <dt>Mode</dt><dd>Mode: {mode}</dd>
+      <dt>Shared key</dt><dd>Shared key: {shared_key_html}</dd>
+      <dt>Table count</dt><dd>Table count: {len(tables)}</dd>
+    </dl>
+  </section>
   <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="download">Download final output CSV</button></section>
   <section><h2>Parsed worksheet data</h2><div id="tables" class="grid"></div></section>
 </main>
