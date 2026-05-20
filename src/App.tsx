@@ -859,7 +859,7 @@ function Transcript(props: {
                 {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
                 )}
-                {message.role === "assistant" && message.citations.length === 0 && (message.grounding?.status === "no_citations" || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
+                {message.role === "assistant" && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
                   <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} />
                 )}
               </div>

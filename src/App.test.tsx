@@ -489,6 +489,36 @@ describe("App", () => {
     expect(screen.getByText("Ask again after adding relevant local documents.")).toBeVisible();
   });
 
+  it("does not warn about missing citations when the backend marks grounding as not applicable", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "Hi! Ask me about the attached report when you're ready.");
+    answer.grounding = {
+      status: "not_applicable",
+      notice: "No source needed for this response.",
+      detail: "This turn is conversational and does not answer from documents."
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Hi! Ask me about the attached report when you're ready.")).toBeVisible();
+    expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Treat this answer as ungrounded until a cited snippet supports it.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No source needed for this response.")).not.toBeInTheDocument();
+  });
+
   it("shows an honest no-answer state when an assistant message is blank", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

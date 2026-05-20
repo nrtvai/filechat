@@ -164,6 +164,26 @@ describe("validateLocalHtmlWorkflowApp", () => {
     expect(result.errors).toContain("workflow.manualStepsReplaced must list at least one copy/paste/edit step being automated");
   });
 
+  it("rejects workflows without concrete spreadsheet file inputs", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      html: "<!doctype html><html><body><button>Download final output CSV</button><script>function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["weekly inventory dashboard"],
+        manualStepsReplaced: ["copy weekly sales rows into the reorder sheet"],
+        transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
+        outputs: ["reconciliation-output.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("workflow.inputs must list at least one concrete spreadsheet file such as .csv, .tsv, .xls, or .xlsx");
+  });
+
   it("rejects external or linked asset dependencies so the generated app remains local", () => {
     const externalScriptResult = validateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",

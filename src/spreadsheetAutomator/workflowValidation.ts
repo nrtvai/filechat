@@ -59,6 +59,10 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
     errors.push("runInstructions.windows must explain how to open/run the local HTML app on Windows");
   }
 
+  if (!hasConcreteSpreadsheetInput(app.workflow.inputs)) {
+    errors.push("workflow.inputs must list at least one concrete spreadsheet file such as .csv, .tsv, .xls, or .xlsx");
+  }
+
   if (!hasConcreteSpreadsheetStep(app.workflow.manualStepsReplaced)) {
     errors.push("workflow.manualStepsReplaced must list at least one copy/paste/edit step being automated");
   }
@@ -169,6 +173,10 @@ function isCompleteLocalHtmlApp(html: string) {
     || /<link\s[^>]*\bhref\s*=/.test(normalized)
     || /<(?:img|iframe|object|embed|source|audio|video)\s[^>]*\bsrc\s*=\s*["'](?!data:)/.test(normalized);
   return hasDocumentShell && hasInlineScript && !hasExternalDependency;
+}
+
+function hasConcreteSpreadsheetInput(inputs: string[]) {
+  return inputs.some((input) => /\.(?:csv|tsv|xlsx?|xlsm)\b/i.test(input));
 }
 
 function hasConcreteSpreadsheetStep(steps: string[]) {
