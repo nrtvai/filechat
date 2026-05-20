@@ -166,6 +166,36 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     payload = json.dumps(manifest, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     question_html = html_lib.escape(question)
     shared_key_html = html_lib.escape(key or "(none detected)")
+    input_items_html = "\n".join(
+        "      <li>"
+        + html_lib.escape(
+            f"{table.file_name} / {table.sheet_name}: {len(table.rows)} rows; columns: {', '.join(table.columns)}"
+        )
+        + "</li>"
+        for table in tables
+    )
+    if key:
+        manual_step_items_html = "\n".join([
+            "      <li>Paste rows from each spreadsheet into one comparison sheet</li>",
+            "      <li>Manually scan for value differences on the shared key</li>",
+            "      <li>Edit or filter comparison rows by hand before exporting results</li>",
+        ])
+        transform_items_html = "\n".join([
+            f"      <li>Normalize and match rows by shared key {html_lib.escape(key)}</li>",
+            "      <li>Compare shared non-key columns with embedded local JavaScript</li>",
+            "      <li>Generate value_difference, missing_table, duplicate_key, and matched statuses</li>",
+        ])
+    else:
+        manual_step_items_html = "\n".join([
+            "      <li>Collect row counts and headers from each workbook by hand</li>",
+            "      <li>Compare worksheet schemas manually when no shared key is available</li>",
+            "      <li>Copy the schema-only summary into the final workflow output</li>",
+        ])
+        transform_items_html = "\n".join([
+            "      <li>Display the precomputed schema-only comparison for the uploaded tables</li>",
+            "      <li>Generate a schema_only CSV summary row with embedded local JavaScript</li>",
+            "      <li>Preserve each input table so the workflow can be edited and inspected locally</li>",
+        ])
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -204,6 +234,26 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
       <dt>Shared key</dt><dd>Shared key: {shared_key_html}</dd>
       <dt>Table count</dt><dd>Table count: {len(tables)}</dd>
     </dl>
+  </section>
+  <section>
+    <h2>Workflow contract</h2>
+    <h3>Input files/tables</h3>
+    <ul>
+{input_items_html}
+    </ul>
+    <h3>Manual copy/paste/edit steps replaced</h3>
+    <ul>
+{manual_step_items_html}
+    </ul>
+    <h3>Deterministic transforms</h3>
+    <ul>
+{transform_items_html}
+    </ul>
+    <h3>Final outputs</h3>
+    <ul>
+      <li>On-screen workflow report</li>
+      <li>reconciliation-output.csv</li>
+    </ul>
   </section>
   <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="download">Download final output CSV</button></section>
   <section><h2>Parsed worksheet data</h2><div id="tables" class="grid"></div></section>

@@ -371,8 +371,69 @@ def test_local_html_app_shows_local_run_instructions_and_workflow_manifest():
     assert "Mode: reconcile" in html
     assert "Shared key: SKU&lt;script&gt;" in html
     assert "Table count: 2" in html
+    assert "Workflow contract" in html
+    assert "Input files/tables" in html
+    assert "forecast.csv / forecast: 2 rows; columns: SKU&lt;script&gt;, Qty" in html
+    assert "actuals.csv / actuals: 2 rows; columns: SKU&lt;script&gt;, Qty" in html
+    assert "Manual copy/paste/edit steps replaced" in html
+    assert "Paste rows from each spreadsheet into one comparison sheet" in html
+    assert "Manually scan for value differences on the shared key" in html
+    assert "Deterministic transforms" in html
+    assert "Normalize and match rows by shared key SKU&lt;script&gt;" in html
+    assert "Generate value_difference, missing_table, duplicate_key, and matched statuses" in html
+    assert "Final outputs" in html
+    assert "reconciliation-output.csv" in html
     assert "http://" not in html
     assert "https://" not in html
+
+
+def test_schema_only_local_html_workflow_contract_does_not_claim_key_matching():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.xlsx\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: Forecast\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: ForecastSKU, Qty\n\n"
+        "Preview (source rows 2-3):\n"
+        "| ForecastSKU | Qty |\n"
+        "| --- | --- |\n"
+        "| A1 | 10 |\n"
+        "| B2 | 20 |\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.xlsx\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: Actuals\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: ActualSKU, ActualQty\n\n"
+        "Preview (source rows 2):\n"
+        "| ActualSKU | ActualQty |\n"
+        "| --- | --- |\n"
+        "| A1 | 10 |\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "reconcile workbook schemas",
+        [
+            {"file_id": "forecast", "file_name": "forecast.xlsx", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.xlsx", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "Mode: schema_only" in html
+    assert "Shared key: (none detected)" in html
+    assert "Workflow contract" in html
+    assert "Display the precomputed schema-only comparison for the uploaded tables" in html
+    assert "Generate a schema_only CSV summary row with embedded local JavaScript" in html
+    assert "Compare worksheet schemas manually when no shared key is available" in html
+    assert "Manually scan for value differences on the shared key" not in html
+    assert "Generate value_difference, missing_table, duplicate_key, and matched statuses" not in html
 
 
 def test_standalone_local_html_runtime_script_is_valid_javascript():
