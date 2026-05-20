@@ -88,6 +88,11 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
 
 function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["workflow"]) {
   const inputItems = workflow.inputs.map((input) => `<li><code>${escapeHtml(input)}</code></li>`).join("");
+  const fileInputItems = workflow.inputs
+    .map(
+      (input) => `<label>${escapeHtml(input)} <input type="file" accept=".csv,.tsv,.xls,.xlsx,.xlsm" data-workflow-input="${escapeHtml(input)}"></label>`,
+    )
+    .join("");
   const stepItems = workflow.manualStepsReplaced.map((step) => `<li>${escapeHtml(step)}</li>`).join("");
   const transformItems = workflow.transforms
     .map((transform) => `<li><strong>${escapeHtml(transform.id)}</strong>: ${escapeHtml(transform.description)}</li>`)
@@ -110,6 +115,9 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   <p>This local workflow app documents the deterministic spreadsheet automation contract and downloads the final CSV output.</p>
   <h2>Inputs</h2>
   <ul>${inputItems}</ul>
+  <form id="input-files">
+    ${fileInputItems}
+  </form>
   <h2>Manual spreadsheet steps replaced</h2>
   <ol>${stepItems}</ol>
   <h2>Deterministic transforms</h2>

@@ -22,6 +22,10 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).toContain("<!doctype html>");
     expect(app.html).toContain("sales_orders.csv");
     expect(app.html).toContain("warehouse_stock_units.csv");
+    expect(app.html.match(/type="file"/g)).toHaveLength(2);
+    expect(app.html.match(/accept="\.csv,\.tsv,\.xls,\.xlsx,\.xlsm"/g)).toHaveLength(2);
+    expect(app.html).toContain('data-workflow-input="sales_orders.csv"');
+    expect(app.html).toContain('data-workflow-input="warehouse_stock_units.csv"');
     expect(app.html).toContain("Download final output CSV");
     expect(app.html).toContain("new Blob");
     expect(app.html).toContain("text/csv");

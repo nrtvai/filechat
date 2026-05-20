@@ -281,6 +281,38 @@ describe("App", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_old/files", expect.anything());
   });
 
+  it("filters the left-rail session list by title", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "Quarterly budget review", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([
+        session("ses_new", "Quarterly budget review", 1),
+        session("ses_ops", "Operations handbook", 2),
+        session("ses_vendor", "Vendor renewal notes", 1)
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_budget", "budget.csv")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Quarterly budget review")).toBeVisible();
+    expect(screen.getByText("Operations handbook")).toBeVisible();
+
+    fireEvent.change(screen.getByPlaceholderText("Search sessions"), { target: { value: "vendor" } });
+
+    expect(screen.getByText("Vendor renewal notes")).toBeVisible();
+    expect(screen.queryByText("Quarterly budget review")).not.toBeInTheDocument();
+    expect(screen.queryByText("Operations handbook")).not.toBeInTheDocument();
+  });
+
   it("resets the cold-start Attach files input so the same file can be selected again", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
