@@ -5,7 +5,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
   it("accepts a deterministic local HTML workflow app with Mac and Windows run instructions", () => {
     const result = validateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",
-      html: "<!doctype html><html><body><script>function runWorkflow(input){ return input; }</script></body></html>",
+      html: "<!doctype html><html><body><button>Download final output CSV</button><script>function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
       runInstructions: {
         mac: "Open index.html in Safari or Chrome on your Mac.",
         windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
@@ -16,7 +16,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
         transforms: [
           { id: "join-sales-stock", description: "Join sales to stock by SKU", deterministic: true },
         ],
-        outputs: ["reorder_plan.csv"],
+        outputs: ["reconciliation-output.csv"],
       },
     });
 
@@ -45,13 +45,55 @@ describe("validateLocalHtmlWorkflowApp", () => {
       "workflow.manualStepsReplaced must list at least one copy/paste/edit step being automated",
       "workflow.transforms must all be deterministic coded transforms",
       "workflow.outputs must list at least one generated spreadsheet/workflow output",
+      "workflow.outputs must include the deterministic reconciliation-output.csv final output",
+      "html must include a local final output CSV download action implemented with a browser Blob and deterministic filename",
     ]);
+  });
+
+  it("rejects local HTML apps that only display a report without a final output download", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly reconciliation builder",
+      html: "<!doctype html><html><body><button>Run local reconciliation</button><pre id='report'></pre><script>function runWorkflow(input){ return input; }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["forecast.csv", "actuals.csv"],
+        manualStepsReplaced: ["copy rows from forecast.csv and paste matched rows into actuals.csv"],
+        transforms: [{ id: "reconcile", description: "Reconcile rows by SKU", deterministic: true }],
+        outputs: ["reconciliation-output.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("html must include a local final output CSV download action implemented with a browser Blob and deterministic filename");
+  });
+
+  it("rejects local HTML apps whose workflow output contract omits the deterministic final CSV", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly reconciliation builder",
+      html: "<!doctype html><html><body><button>Download final output CSV</button><script>function downloadFinalOutputCsv(){ const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["forecast.csv", "actuals.csv"],
+        manualStepsReplaced: ["copy rows from forecast.csv and paste matched rows into actuals.csv"],
+        transforms: [{ id: "reconcile", description: "Reconcile rows by SKU", deterministic: true }],
+        outputs: ["reorder_plan.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("workflow.outputs must include the deterministic reconciliation-output.csv final output");
   });
 
   it("rejects generic browser instructions and vague manual steps", () => {
     const result = validateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",
-      html: "<!doctype html><html><body><script>function runWorkflow(input){ return input; }</script></body></html>",
+      html: "<!doctype html><html><body><button>Download final output CSV</button><script>function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
       runInstructions: {
         mac: "Open index.html in Safari or Chrome on your Mac.",
         windows: "Open index.html in Chrome.",
@@ -60,7 +102,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
         inputs: ["sales_orders.csv"],
         manualStepsReplaced: ["review the workbook"],
         transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
-        outputs: ["reorder_plan.csv"],
+        outputs: ["reconciliation-output.csv"],
       },
     });
 
@@ -81,7 +123,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
         inputs: ["sales_orders.csv"],
         manualStepsReplaced: ["copy weekly sales into the reorder sheet"],
         transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
-        outputs: ["reorder_plan.csv"],
+        outputs: ["reconciliation-output.csv"],
       },
     });
     const linkedCssResult = validateLocalHtmlWorkflowApp({
@@ -95,7 +137,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
         inputs: ["sales_orders.csv"],
         manualStepsReplaced: ["copy weekly sales into the reorder sheet"],
         transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
-        outputs: ["reorder_plan.csv"],
+        outputs: ["reconciliation-output.csv"],
       },
     });
 

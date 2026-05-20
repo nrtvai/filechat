@@ -49,6 +49,14 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
     errors.push("workflow.outputs must list at least one generated spreadsheet/workflow output");
   }
 
+  if (!app.workflow.outputs.some((output) => output.toLowerCase() === "reconciliation-output.csv")) {
+    errors.push("workflow.outputs must include the deterministic reconciliation-output.csv final output");
+  }
+
+  if (!hasLocalFinalOutputDownload(app.html)) {
+    errors.push("html must include a local final output CSV download action implemented with a browser Blob and deterministic filename");
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -78,6 +86,16 @@ function hasLocalRunInstruction(instruction: string, platformWords: string[]) {
   const opensLocally = contains(normalized, "open") || contains(normalized, "double-click") || contains(normalized, "double click");
   const namesPlatform = platformWords.some((word) => contains(normalized, word));
   return namesHtmlFile && opensLocally && namesPlatform;
+}
+
+function hasLocalFinalOutputDownload(html: string) {
+  const normalized = html.toLowerCase();
+  const hasVisibleDownloadAction = contains(normalized, "download final output csv");
+  const hasBlobCsv = /new\s+blob\s*\(/i.test(html) && contains(normalized, "text/csv");
+  const createsLocalObjectUrl = contains(normalized, "url.createobjecturl");
+  const setsDownloadFilename = /\.download\s*=\s*["']reconciliation-output\.csv["']/.test(html)
+    || /download\s*=\s*["']reconciliation-output\.csv["']/.test(normalized);
+  return hasVisibleDownloadAction && hasBlobCsv && createsLocalObjectUrl && setsDownloadFilename;
 }
 
 function contains(value: string, search: string) {

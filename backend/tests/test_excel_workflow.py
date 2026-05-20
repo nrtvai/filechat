@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
 from backend.app.excel_workflow import build_excel_workflow_answer, build_excel_workflow_html_app
 
 
@@ -295,12 +300,107 @@ def test_builds_standalone_local_html_workflow_runtime_for_reconciliation():
     assert "Spreadsheet Workflow Automator" in html
     assert "window.__WORKFLOW__" in html
     assert "compareWorkflow" in html
+    assert "Download final output CSV" in html
+    assert "downloadFinalOutputCsv" in html
+    assert "new Blob" in html
+    assert "URL.createObjectURL" in html
+    assert "reconciliation-output.csv" in html
+    assert "function finalOutputRows(workflow)" in html
+    assert "key,status,detail,source_refs" in html
+    assert "value_difference" in html
+    assert "missing_table" in html
+    assert "matched" in html
+    assert "finalOutputCsv(window.__WORKFLOW__)" in html
     assert '"sharedKey":"SKU"' in html
     assert "B2" in html
     assert "forecast.csv" in html
     assert "actuals.csv" in html
     assert "http://" not in html
     assert "https://" not in html
+
+
+def test_standalone_local_html_runtime_script_is_valid_javascript():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "=A1,10\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "=A1,11\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        script_path = Path(temp_dir) / "workflow-runtime.js"
+        script_path.write_text(match.group(1), encoding="utf-8")
+        result = subprocess.run(["node", "--check", str(script_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+        runtime_path = Path(temp_dir) / "workflow-runtime-exec.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+const csv = finalOutputCsv({
+  sharedKey: 'SKU',
+  tables: [
+    { fileName: 'forecast.csv', sheetName: 'forecast', columns: ['SKU', 'Qty'], sourceRows: [2], rows: [{ SKU: '=A1', Qty: '10\\n20' }] },
+    { fileName: 'actuals.csv', sheetName: 'actuals', columns: ['SKU', 'Qty'], sourceRows: [2], rows: [{ SKU: '=A1', Qty: '11' }] },
+  ],
+});
+assert(csv.includes('key,status,detail,source_refs'));
+assert(csv.includes("'=A1"));
+assert(csv.includes('"10\\n20 at forecast.csv / forecast row 2; 11 at actuals.csv / actuals row 2"'));
+assert(!csv.includes('tfoo'));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+    assert "String.fromCharCode(10)" in html
 
 
 def test_local_html_runtime_reports_duplicate_keys_and_escapes_script_end_tags():

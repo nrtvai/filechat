@@ -181,7 +181,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
 <main>
   <h1>Spreadsheet Workflow Automator</h1>
   <p>Standalone local runtime: edit rows below and re-run the deterministic reconciliation in this browser. No network or spreadsheet copy/paste is required.</p>
-  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button></section>
+  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="download">Download final output CSV</button></section>
   <section><h2>Parsed worksheet data</h2><div id="tables" class="grid"></div></section>
 </main>
 <script>
@@ -241,7 +241,56 @@ function compareWorkflow(workflow) {{
     if (diffs.length) {{ issues += 1; lines.push(`- \\`${{value}}\\` differs — ${{diffs.join(' | ')}}.`); }}
   }}
   if (!issues) lines.push('No key presence or shared-column value differences were found in the parsed rows.');
-  return lines.join('\\\\n');
+  return lines.join('\\n');
+}}
+function finalOutputRows(workflow) {{
+  const key = workflow.sharedKey;
+  if (!key) return [{{key: '', status: 'schema_only', detail: workflow.answer || 'No shared key was detected.', source_refs: ''}}];
+  const indexes = workflow.tables.map(table => indexByKey(table, key));
+  const keys = Array.from(new Set(indexes.flatMap(index => Array.from(index.keys())))).sort();
+  const rows = [];
+  for (const warning of duplicateKeyWarnings(workflow.tables, key)) rows.push({{key: '', status: 'duplicate_key', detail: warning, source_refs: ''}});
+  for (const value of keys) {{
+    const present = workflow.tables.map((table, i) => [table, indexes[i].get(value)]).filter(([, hit]) => hit);
+    if (present.length !== workflow.tables.length) {{
+      const missing = workflow.tables.filter((_, i) => !indexes[i].has(value)).map(t => `${{t.fileName}} / ${{t.sheetName}}`).join('; ');
+      const sourceRefs = present.map(([table, hit]) => rowRef(table, hit.index)).join('; ');
+      rows.push({{key: value, status: 'missing_table', detail: `missing from ${{missing}}`, source_refs: sourceRefs}});
+      continue;
+    }}
+    const common = workflow.tables[0].columns.filter(column => column !== key && workflow.tables.every(table => table.columns.includes(column)));
+    let hasDifference = false;
+    for (const column of common) {{
+      const values = present.map(([table, hit]) => [table, String(hit.row[column] || '').trim(), hit.index]);
+      if (new Set(values.map(([, cell]) => cell)).size > 1) {{
+        hasDifference = true;
+        rows.push({{key: value, status: 'value_difference', detail: `${{column}} differs`, source_refs: values.map(([table, cell, rowIndex]) => `${{cell || '(blank)'}} at ${{rowRef(table, rowIndex)}}`).join('; ')}});
+      }}
+    }}
+    if (!hasDifference) rows.push({{key: value, status: 'matched', detail: 'all shared columns match', source_refs: present.map(([table, hit]) => rowRef(table, hit.index)).join('; ')}});
+  }}
+  if (!rows.length) rows.push({{key: '', status: 'matched', detail: 'No key presence or shared-column value differences were found in the parsed rows.', source_refs: ''}});
+  return rows;
+}}
+function csvCell(value) {{
+  let text = String(value == null ? '' : value);
+  const first = text.charAt(0);
+  if (first === '=' || first === '+' || first === '-' || first === '@' || first.charCodeAt(0) === 9 || first.charCodeAt(0) === 13) text = "'" + text;
+  return text.includes('"') || text.includes(',') || text.includes(String.fromCharCode(13)) || text.includes(String.fromCharCode(10)) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}}
+function finalOutputCsv(workflow) {{
+  const lines = ['key,status,detail,source_refs'];
+  finalOutputRows(workflow).forEach(row => {{ lines.push([row.key, row.status, row.detail, row.source_refs].map(csvCell).join(',')); }});
+  return lines.join('\\r\\n') + '\\r\\n';
+}}
+function downloadFinalOutputCsv() {{
+  const blob = new Blob([finalOutputCsv(window.__WORKFLOW__)], {{ type: 'text/csv;charset=utf-8' }});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'reconciliation-output.csv';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {{ URL.revokeObjectURL(link.href); link.remove(); }}, 0);
 }}
 function render() {{
   const workflow = window.__WORKFLOW__;
@@ -263,6 +312,7 @@ document.getElementById('run').addEventListener('click', () => {{
   document.querySelectorAll('textarea[data-table]').forEach(area => {{ window.__WORKFLOW__.tables[Number(area.dataset.table)].rows = JSON.parse(area.value); }});
   document.getElementById('report').textContent = compareWorkflow(window.__WORKFLOW__);
 }});
+document.getElementById('download').addEventListener('click', downloadFinalOutputCsv);
 render();
 </script>
 </body>
