@@ -461,6 +461,34 @@ describe("App", () => {
     expect(screen.getByText("Available source context: report.txt")).toBeVisible();
   });
 
+  it("shows backend grounding notices when an answer has no citations", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "The backend marked this as unsupported.");
+    answer.grounding = {
+      status: "no_citations",
+      notice: "No source snippets supported this answer.",
+      detail: "Ask again after adding relevant local documents."
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("No source snippets supported this answer.")).toBeVisible();
+    expect(screen.getByText("Ask again after adding relevant local documents.")).toBeVisible();
+  });
+
   it("shows an honest no-answer state when an assistant message is blank", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

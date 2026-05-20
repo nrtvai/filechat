@@ -1,5 +1,58 @@
 import { describe, expect, it } from "vitest";
-import { validateLocalHtmlWorkflowApp } from "./workflowValidation";
+import { generateLocalHtmlWorkflowApp, validateLocalHtmlWorkflowApp } from "./workflowValidation";
+
+describe("generateLocalHtmlWorkflowApp", () => {
+  it("returns a complete self-contained local HTML app with a deterministic final CSV download contract", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      workflow: {
+        inputs: ["sales_orders.csv", "warehouse_stock_units.csv"],
+        manualStepsReplaced: ["copy weekly sales rows into the reorder sheet", "edit reorder quantity column by SKU"],
+        transforms: [
+          { id: "join-sales-stock", description: "Join sales to stock by SKU", deterministic: true },
+          { id: "calculate-reorder", description: "Calculate reorder quantity from sales and on-hand units", deterministic: true },
+        ],
+      },
+    });
+
+    expect(app.title).toBe("Weekly inventory reorder builder");
+    expect(app.workflow.outputs).toEqual(["reconciliation-output.csv"]);
+    expect(app.runInstructions.mac).toContain("index.html");
+    expect(app.runInstructions.windows).toContain("Windows");
+    expect(app.html).toContain("<!doctype html>");
+    expect(app.html).toContain("sales_orders.csv");
+    expect(app.html).toContain("warehouse_stock_units.csv");
+    expect(app.html).toContain("Download final output CSV");
+    expect(app.html).toContain("new Blob");
+    expect(app.html).toContain("text/csv");
+    expect(app.html).toContain("a.download = 'reconciliation-output.csv'");
+    expect(app.html).not.toMatch(/<script\s[^>]*\bsrc\s*=/i);
+
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
+  });
+
+  it("escapes workflow metadata before embedding it in the generated inline script", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Unsafe metadata workflow",
+      workflow: {
+        inputs: ["orders</script><script src='https://evil.example/app.js'></script>.csv"],
+        manualStepsReplaced: ["copy rows from CSV into sheet & edit quantity columns"],
+        transforms: [
+          {
+            id: "join-rows",
+            description: "Join rows by SKU before </script><script>alert('x')</script> export",
+            deterministic: true,
+          },
+        ],
+      },
+    });
+
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
+    expect(app.html).not.toContain("</script><script");
+    expect(app.html).not.toMatch(/<script\s[^>]*\bsrc\s*=/i);
+    expect(app.html).toContain("\\u003C/script\\u003E");
+  });
+});
 
 describe("validateLocalHtmlWorkflowApp", () => {
   it("accepts a deterministic local HTML workflow app with Mac and Windows run instructions", () => {

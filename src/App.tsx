@@ -859,8 +859,8 @@ function Transcript(props: {
                 {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
                 )}
-                {message.role === "assistant" && message.citations.length === 0 && (props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
-                  <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
+                {message.role === "assistant" && message.citations.length === 0 && (message.grounding?.status === "no_citations" || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
+                  <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} />
                 )}
               </div>
             </article>
@@ -899,7 +899,7 @@ function visibleArtifacts(message: Message, profile: ContextProfile) {
   return message.artifacts.filter((artifact) => (artifact.display_mode ?? "primary") === "primary");
 }
 
-function NoCitationNotice({ unavailableFileIds = [], files = [] }: { unavailableFileIds?: string[]; files?: FileRecord[] }) {
+function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
   const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
   const readyLabels = files.filter((file) => file.status === "ready").map((file) => file.name);
   const failedLabels = files
@@ -907,8 +907,8 @@ function NoCitationNotice({ unavailableFileIds = [], files = [] }: { unavailable
     .map((file) => file.error ? `${file.name} (${fileErrorSummary(file)})` : file.name);
   return (
     <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="No citations attached">
-      <strong>No citations attached to this answer.</strong>
-      <small>FileChat is being explicit that this response has no retrieved source snippets.</small>
+      <strong>{grounding?.notice?.trim() || "No citations attached to this answer."}</strong>
+      <small>{grounding?.detail?.trim() || "FileChat is being explicit that this response has no retrieved source snippets."}</small>
       {readyLabels.length > 0 && <small>Treat this answer as ungrounded until a cited snippet supports it.</small>}
       {readyLabels.length > 0 && <small>Available source context: {readyLabels.join(", ")}</small>}
       {failedLabels.length > 0 && <small>Failed source context: {failedLabels.join(", ")}</small>}

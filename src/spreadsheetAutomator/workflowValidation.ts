@@ -17,9 +17,31 @@ export interface LocalHtmlWorkflowApp {
   };
 }
 
+export interface LocalHtmlWorkflowAppSpec {
+  title: string;
+  workflow: Omit<LocalHtmlWorkflowApp["workflow"], "outputs"> & {
+    outputs?: string[];
+  };
+}
+
 export interface WorkflowValidationResult {
   ok: boolean;
   errors: string[];
+}
+
+export function generateLocalHtmlWorkflowApp(spec: LocalHtmlWorkflowAppSpec): LocalHtmlWorkflowApp {
+  const outputs = ["reconciliation-output.csv"];
+  const workflow = { ...spec.workflow, outputs };
+
+  return {
+    title: spec.title,
+    html: buildLocalWorkflowHtml(spec.title, workflow),
+    runInstructions: {
+      mac: "Save the generated file as index.html, then open index.html in Safari or Chrome on your Mac.",
+      windows: "Save the generated file as index.html, then double-click index.html or open it in Edge/Chrome on Windows.",
+    },
+    workflow,
+  };
 }
 
 export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): WorkflowValidationResult {
@@ -58,6 +80,85 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
   }
 
   return { ok: errors.length === 0, errors };
+}
+
+function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["workflow"]) {
+  const inputItems = workflow.inputs.map((input) => `<li><code>${escapeHtml(input)}</code></li>`).join("");
+  const stepItems = workflow.manualStepsReplaced.map((step) => `<li>${escapeHtml(step)}</li>`).join("");
+  const transformItems = workflow.transforms
+    .map((transform) => `<li><strong>${escapeHtml(transform.id)}</strong>: ${escapeHtml(transform.description)}</li>`)
+    .join("");
+  const workflowJson = serializeJsonForInlineScript(workflow);
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    button { font: inherit; padding: 0.7rem 1rem; cursor: pointer; }
+    pre { background: #f6f8fa; padding: 1rem; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <p>This local workflow app documents the deterministic spreadsheet automation contract and downloads the final CSV output.</p>
+  <h2>Inputs</h2>
+  <ul>${inputItems}</ul>
+  <h2>Manual spreadsheet steps replaced</h2>
+  <ol>${stepItems}</ol>
+  <h2>Deterministic transforms</h2>
+  <ol>${transformItems}</ol>
+  <button type="button" onclick="downloadFinalOutputCsv()">Download final output CSV</button>
+  <pre id="status">Ready to generate reconciliation-output.csv locally.</pre>
+  <script>
+    const workflow = ${workflowJson};
+
+    function runWorkflow() {
+      const rows = [
+        ['output_file', 'transform_count', 'input_count'],
+        ['reconciliation-output.csv', String(workflow.transforms.length), String(workflow.inputs.length)]
+      ];
+      return rows.map(row => row.map(toCsvCell).join(',')).join('\\n') + '\\n';
+    }
+
+    function toCsvCell(value) {
+      const text = String(value);
+      return /[",\\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+    }
+
+    function downloadFinalOutputCsv() {
+      const csv = runWorkflow();
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.download = 'reconciliation-output.csv';
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      URL.revokeObjectURL(a.href);
+      document.getElementById('status').textContent = 'Generated reconciliation-output.csv from deterministic local transforms.';
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function serializeJsonForInlineScript(value: unknown) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003C")
+    .replace(/>/g, "\\u003E")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function isCompleteLocalHtmlApp(html: string) {
