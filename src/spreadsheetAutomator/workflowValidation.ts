@@ -30,7 +30,7 @@ export interface WorkflowValidationResult {
 }
 
 export function generateLocalHtmlWorkflowApp(spec: LocalHtmlWorkflowAppSpec): LocalHtmlWorkflowApp {
-  const outputs = ["reconciliation-output.csv"];
+  const outputs = withRequiredFinalOutput(spec.workflow.outputs ?? []);
   const workflow = { ...spec.workflow, outputs };
 
   return {
@@ -92,6 +92,7 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
 
 function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["workflow"]) {
   const inputItems = workflow.inputs.map((input) => `<li><code>${escapeHtml(input)}</code></li>`).join("");
+  const outputItems = workflow.outputs.map((output) => `<li><code>${escapeHtml(output)}</code></li>`).join("");
   const initialMissingInputs = workflow.inputs.join(", ");
   const initialStatus = initialMissingInputs.length > 0
     ? `Cannot generate final output until required input files are selected. Missing: ${initialMissingInputs}`
@@ -130,6 +131,8 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   <ol>${stepItems}</ol>
   <h2>Deterministic transforms</h2>
   <ol>${transformItems}</ol>
+  <h2>Outputs</h2>
+  <ul>${outputItems}</ul>
   <button type="button" onclick="downloadFinalOutputCsv()">Download final output CSV</button>
   <pre id="status">${escapeHtml(initialStatus)}</pre>
   <script>
@@ -198,6 +201,14 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   </script>
 </body>
 </html>`;
+}
+
+function withRequiredFinalOutput(outputs: string[]) {
+  const finalOutput = "reconciliation-output.csv";
+  const declaredOutputs = outputs.filter((output, index) => outputs.indexOf(output) === index);
+  return declaredOutputs.some((output) => output.toLowerCase() === finalOutput)
+    ? declaredOutputs
+    : [...declaredOutputs, finalOutput];
 }
 
 function serializeJsonForInlineScript(value: unknown) {

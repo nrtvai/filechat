@@ -865,6 +865,9 @@ function Transcript(props: {
                 {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
                 )}
+                {message.role === "assistant" && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
+                  <UnavailableSourceNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
+                )}
                 {message.role === "assistant" && message.content.trim() && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
                   <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} />
                 )}
@@ -919,6 +922,17 @@ function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { 
       {readyLabels.length > 0 && <small>Available source context: {readyLabels.join(", ")}</small>}
       {failedLabels.length > 0 && <small>Failed source context: {failedLabels.join(", ")}</small>}
       {unavailableLabels.length > 0 && <small>Unavailable sources: {unavailableLabels.join(", ")}</small>}
+    </div>
+  );
+}
+
+function UnavailableSourceNotice({ unavailableFileIds = [], files = [] }: { unavailableFileIds?: string[]; files?: FileRecord[] }) {
+  const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
+  if (unavailableLabels.length === 0) return null;
+  return (
+    <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="Some sources unavailable">
+      <strong>Some sources were unavailable for this answer.</strong>
+      <small>Unavailable sources: {unavailableLabels.join(", ")}</small>
     </div>
   );
 }

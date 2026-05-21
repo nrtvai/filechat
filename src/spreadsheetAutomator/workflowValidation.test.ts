@@ -52,6 +52,22 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
   });
 
+  it("preserves additional declared outputs while adding the deterministic reconciliation CSV", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Weekly close workbook builder",
+      workflow: {
+        inputs: ["ledger.csv", "bank_export.csv"],
+        manualStepsReplaced: ["copy bank rows into the ledger reconciliation sheet"],
+        transforms: [{ id: "match-ledger-bank", description: "Match ledger and bank rows by transaction id", deterministic: true }],
+        outputs: ["exception-report.csv", "reconciliation-output.csv"],
+      },
+    });
+
+    expect(app.workflow.outputs).toEqual(["exception-report.csv", "reconciliation-output.csv"]);
+    expect(app.html).toContain("exception-report.csv");
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
+  });
+
   it("escapes workflow metadata before embedding it in the generated inline script", () => {
     const app = generateLocalHtmlWorkflowApp({
       title: "Unsafe metadata workflow",

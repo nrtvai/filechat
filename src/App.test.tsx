@@ -510,6 +510,35 @@ describe("App", () => {
     expect(summary).toBeVisible();
   });
 
+  it("names unavailable source files even when the answer has citations", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites one local snippet.");
+    answer.citations = [citation("cit_1")];
+    answer.unavailable_file_ids = ["fil_notes"];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 2));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 2)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_report", "report.txt"),
+        file("fil_notes", "notes.pdf", "failed", "OCR failed")
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Sources · 1 · report.txt")).toBeVisible();
+    expect(screen.getByText("Some sources were unavailable for this answer.")).toBeVisible();
+    expect(screen.getByText("Unavailable sources: notes.pdf")).toBeVisible();
+  });
+
   it("warns that an answer with ready files but no citations is ungrounded", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer has no cited snippets.");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
