@@ -959,9 +959,7 @@ function SourcesDisclosure({ citations, onCitationClick, minimized }: { citation
     return (
       <div className="source-strip">
         {citations.map((citation) => (
-          <button key={citation.id} onClick={() => onCitationClick(citation)}>
-            <span>{citation.ordinal}</span>{citation.source_label}<small>{citation.location}</small>
-          </button>
+          <CitationSourceButton key={citation.id} citation={citation} onCitationClick={onCitationClick} showExcerpt />
         ))}
       </div>
     );
@@ -971,12 +969,21 @@ function SourcesDisclosure({ citations, onCitationClick, minimized }: { citation
       <summary>{sourceSummaryLabel(citations)}</summary>
       <div>
         {citations.map((citation) => (
-          <button key={citation.id} onClick={() => onCitationClick(citation)}>
-            <span>{citation.ordinal}</span>{citation.source_label}<small>{citation.location}</small>
-          </button>
+          <CitationSourceButton key={citation.id} citation={citation} onCitationClick={onCitationClick} />
         ))}
       </div>
     </details>
+  );
+}
+
+function CitationSourceButton({ citation, onCitationClick, showExcerpt = false }: { citation: Citation; onCitationClick: (citation: Citation) => void; showExcerpt?: boolean }) {
+  return (
+    <button className="source-citation-button" type="button" onClick={() => onCitationClick(citation)}>
+      <span>{citation.ordinal}</span>
+      <strong>{citation.source_label}</strong>
+      <small>{citation.location}</small>
+      {showExcerpt && citation.excerpt.trim() && <em>{citation.excerpt}</em>}
+    </button>
   );
 }
 

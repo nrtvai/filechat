@@ -1000,6 +1000,18 @@ button { cursor: pointer; }
   padding: 4px 8px 4px 4px;
   max-width: 260px;
 }
+.source-strip .source-citation-button {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  text-align: left;
+}
+.source-strip .source-citation-button em {
+  flex-basis: 100%;
+  color: var(--ink-3);
+  font-style: normal;
+  line-height: 1.35;
+  padding-left: 27px;
+}
 .source-strip span, .citation-card span {
   background: var(--accent);
   color: white;

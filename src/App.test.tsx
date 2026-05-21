@@ -486,6 +486,32 @@ describe("App", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_new/runs", expect.objectContaining({ method: "POST" }));
   });
 
+  it("shows citation excerpts inline when citation display is full", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites local snippets.");
+    answer.citations = [citation("cit_1")];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "full" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("This answer cites local snippets.")).toBeVisible();
+    expect(screen.getAllByText("report.txt").length).toBeGreaterThan(0);
+    expect(screen.getByText("chunk 1")).toBeVisible();
+    expect(screen.getByText("Source excerpt")).toBeVisible();
+  });
+
   it("keeps source filenames visible on collapsed cited answers", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer cites local snippets.");
     answer.citations = [citation("cit_1")];

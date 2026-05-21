@@ -243,6 +243,23 @@ describe("generateLocalHtmlWorkflowApp", () => {
 });
 
 describe("validateLocalHtmlWorkflowApp", () => {
+  function validateHtmlWithWorkflowScript(script: string) {
+    return validateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      html: `<!doctype html><html><body><input type='file' data-workflow-input='sales_orders.csv'><button>Download final output CSV</button><pre id='status'></pre><script>const workflow = { inputs: ['sales_orders.csv'] }; function getMissingWorkflowInputs(){ return workflow.inputs.filter(inputName => { const input = document.querySelector('[data-workflow-input=\\\"' + inputName + '\\\"]'); return !input || !input.files || input.files.length === 0; }); } ${script} function downloadFinalOutputCsv(){ const missing = getMissingWorkflowInputs(); if (missing.length > 0) { document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', '); return; } const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>`,
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["sales_orders.csv"],
+        manualStepsReplaced: ["copy weekly sales into the reorder sheet"],
+        transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
+        outputs: ["reconciliation-output.csv"],
+      },
+    });
+  }
+
   it("accepts a deterministic local HTML workflow app with Mac and Windows run instructions", () => {
     const result = validateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",
@@ -411,6 +428,20 @@ describe("validateLocalHtmlWorkflowApp", () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toContain("workflow.inputs must list at least one concrete spreadsheet file such as .csv, .tsv, .xls, or .xlsx");
+  });
+
+  it.each([
+    ["fetch", "async function runWorkflow(input){ return fetch('https://api.example.test/transform', { method: 'POST', body: input }); }"],
+    ["XMLHttpRequest", "function runWorkflow(){ const request = new XMLHttpRequest(); request.open('GET', 'https://api.example.test/transform'); return request; }"],
+    ["XMLHttpRequest without parentheses", "function runWorkflow(){ const request = new XMLHttpRequest; request.open('GET', 'https://api.example.test/transform'); return request; }"],
+    ["WebSocket", "function runWorkflow(){ return new WebSocket('wss://api.example.test/stream'); }"],
+    ["EventSource", "function runWorkflow(){ return new EventSource('https://api.example.test/events'); }"],
+    ["importScripts", "function runWorkflow(){ importScripts('https://cdn.example.test/worker-helper.js'); return 'done'; }"],
+  ])("rejects the %s network API so the generated app remains fully local and offline", (_apiName, script) => {
+    const result = validateHtmlWithWorkflowScript(script);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("html must be a complete self-contained local HTML document with <!doctype html>, <html>, and inline <script> tags");
   });
 
   it("rejects external or linked asset dependencies so the generated app remains local", () => {

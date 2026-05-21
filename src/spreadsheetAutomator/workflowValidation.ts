@@ -339,8 +339,18 @@ function isCompleteLocalHtmlApp(html: string) {
   const hasInlineScript = /<script(?:\s[^>]*)?>[\s\S]*<\/script>/.test(normalized);
   const hasExternalDependency = /<script\s[^>]*\bsrc\s*=/.test(normalized)
     || /<link\s[^>]*\bhref\s*=/.test(normalized)
-    || /<(?:img|iframe|object|embed|source|audio|video)\s[^>]*\bsrc\s*=\s*["'](?!data:)/.test(normalized);
+    || /<(?:img|iframe|object|embed|source|audio|video)\s[^>]*\bsrc\s*=\s*["'](?!data:)/.test(normalized)
+    || usesNetworkApi(html);
   return hasDocumentShell && hasInlineScript && !hasExternalDependency;
+}
+
+function usesNetworkApi(html: string) {
+  return /\bfetch\s*\(/i.test(html)
+    || /\bnew\s+XMLHttpRequest\b/.test(html)
+    || /\bXMLHttpRequest\s*\(/.test(html)
+    || /\bWebSocket\s*\(/.test(html)
+    || /\bEventSource\s*\(/.test(html)
+    || /\bimportScripts\s*\(/.test(html);
 }
 
 function hasConcreteSpreadsheetInput(inputs: string[]) {
