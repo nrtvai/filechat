@@ -145,6 +145,14 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
       });
     }
 
+    function getMismatchedWorkflowInputFiles() {
+      return workflow.inputs.flatMap(inputName => {
+        const input = document.querySelector('[data-workflow-input="' + cssEscape(inputName) + '"]');
+        const file = input && input.files && input.files.length > 0 ? input.files[0] : null;
+        return file && typeof file.name === 'string' && file.name !== inputName ? [inputName + ' selected "' + file.name + '"'] : [];
+      });
+    }
+
     function cssEscape(value) {
       if (window.CSS && typeof window.CSS.escape === 'function') {
         return window.CSS.escape(value);
@@ -278,6 +286,11 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
         document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', ');
         return;
       }
+      const mismatched = getMismatchedWorkflowInputFiles();
+      if (mismatched.length > 0) {
+        document.getElementById('status').textContent = 'Select the exact required input file names before downloading: ' + mismatched.join(', ');
+        return;
+      }
       try {
         const inputFileTexts = await getSelectedInputFileTexts();
         const csv = buildFinalOutputCsv(inputFileTexts);
@@ -297,8 +310,11 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
     document.querySelectorAll('[data-workflow-input]').forEach(input => {
       input.addEventListener('change', () => {
         const missing = getMissingWorkflowInputs();
+        const mismatched = missing.length === 0 ? getMismatchedWorkflowInputFiles() : [];
         document.getElementById('status').textContent = missing.length === 0
-          ? 'All required input files selected. Ready to generate reconciliation-output.csv locally.'
+          ? (mismatched.length === 0
+            ? 'All required input files selected. Ready to generate reconciliation-output.csv locally.'
+            : 'Selected input file names must match the workflow contract. Mismatched: ' + mismatched.join(', '))
           : 'Cannot generate final output until required input files are selected. Missing: ' + missing.join(', ');
       });
     });

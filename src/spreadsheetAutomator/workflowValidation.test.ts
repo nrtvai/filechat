@@ -240,13 +240,61 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(blobSpy).not.toHaveBeenCalled();
     expect(clickSpy).not.toHaveBeenCalled();
   });
+
+  it("blocks the final output download when a selected local file name does not match the required spreadsheet input", async () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Wrong file guard workflow",
+      workflow: {
+        inputs: ["orders.csv"],
+        manualStepsReplaced: ["copy rows into final workbook"],
+        transforms: [{ id: "copy-safe", description: "Copy rows deterministically", deterministic: true }],
+      },
+    });
+    const status = { textContent: "" };
+    const fileInput = {
+      files: [{ name: "customers.csv", text: vi.fn().mockResolvedValue("id,name\n1,Ada") }],
+      addEventListener: vi.fn(),
+    };
+    const blobSpy = vi.fn();
+    const clickSpy = vi.fn();
+
+    expect(app.html).toContain("function getMismatchedWorkflowInputFiles()");
+    expect(app.html).toContain("Select the exact required input file names before downloading: ");
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
+
+    vi.stubGlobal("window", { CSS: { escape: (value: string) => value } });
+    vi.stubGlobal("document", {
+      querySelector: vi.fn((selector: string) => (selector.includes('data-workflow-input="orders.csv"') ? fileInput : null)),
+      querySelectorAll: vi.fn(() => [fileInput]),
+      getElementById: vi.fn(() => status),
+      createElement: vi.fn(() => ({ click: clickSpy })),
+    });
+    vi.stubGlobal("Blob", blobSpy);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:csv"),
+      revokeObjectURL: vi.fn(),
+    });
+    const downloadFinalOutputCsv = getGeneratedWorkflowFunction<() => Promise<void>>(
+      app.html,
+      "downloadFinalOutputCsv",
+    );
+
+    await downloadFinalOutputCsv();
+
+    expect(status.textContent).toBe(
+      'Select the exact required input file names before downloading: orders.csv selected "customers.csv"',
+    );
+    expect(fileInput.files[0].text).not.toHaveBeenCalled();
+    expect(blobSpy).not.toHaveBeenCalled();
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("validateLocalHtmlWorkflowApp", () => {
   function validateHtmlWithWorkflowScript(script: string) {
     return validateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",
-      html: `<!doctype html><html><body><input type='file' data-workflow-input='sales_orders.csv'><button>Download final output CSV</button><pre id='status'></pre><script>const workflow = { inputs: ['sales_orders.csv'] }; function getMissingWorkflowInputs(){ return workflow.inputs.filter(inputName => { const input = document.querySelector('[data-workflow-input=\\\"' + inputName + '\\\"]'); return !input || !input.files || input.files.length === 0; }); } ${script} function downloadFinalOutputCsv(){ const missing = getMissingWorkflowInputs(); if (missing.length > 0) { document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', '); return; } const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>`,
+      html: `<!doctype html><html><body><input type='file' data-workflow-input='sales_orders.csv'><button>Download final output CSV</button><pre id='status'></pre><script>const workflow = { inputs: ['sales_orders.csv'] }; function getMissingWorkflowInputs(){ return workflow.inputs.filter(inputName => { const input = document.querySelector('[data-workflow-input="' + inputName + '"]'); return !input || !input.files || input.files.length === 0; }); } ${script} function downloadFinalOutputCsv(){ const missing = getMissingWorkflowInputs(); if (missing.length > 0) { document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', '); return; } const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>`,
       runInstructions: {
         mac: "Open index.html in Safari or Chrome on your Mac.",
         windows: "Double-click index.html or open it in Edge/Chrome on Windows.",

@@ -738,6 +738,32 @@ describe("App", () => {
     await waitFor(() => expect(runPostCount(fetchMock)).toBe(1));
   });
 
+  it("summarizes mixed ready and unavailable file context in the composer", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "Mixed sources", 3));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "Mixed sources", 3)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_ready", "ready.txt"),
+        file("fil_loading", "loading.txt", "indexing"),
+        file("fil_failed", "failed.pdf", "failed", "OCR failed")
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("1 of 3 files ready")).toBeVisible();
+    expect(screen.getByText("1 ready source · 1 processing · 1 failed · Cmd/Ctrl+Enter to send")).toBeVisible();
+  });
+
   it("does not submit to a newly selected session while its files and messages are still loading", async () => {
     const slowFiles = deferred<Response>();
     const slowMessages = deferred<Response>();

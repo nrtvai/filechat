@@ -1088,9 +1088,16 @@ function Composer(props: {
   onDetachFile?: (fileId: string) => Promise<void>;
 }) {
   const ready = props.files.filter((file) => file.status === "ready").length;
+  const processing = props.files.filter((file) => ["queued", "reading", "indexing"].includes(file.status)).length;
+  const failed = props.files.filter((file) => file.status === "failed").length;
   const helper = ready > 0
-    ? `${ready} ready source${ready === 1 ? "" : "s"} · Cmd/Ctrl+Enter to send`
-    : props.files.some((file) => file.status === "failed")
+    ? [
+        `${ready} ready source${ready === 1 ? "" : "s"}`,
+        processing > 0 ? `${processing} processing` : null,
+        failed > 0 ? `${failed} failed` : null,
+        "Cmd/Ctrl+Enter to send",
+      ].filter(Boolean).join(" · ")
+    : failed > 0
       ? "No ready sources · fix failed files before sending"
       : "No ready sources yet · you can draft while files process";
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
