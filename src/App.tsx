@@ -507,7 +507,6 @@ export function App() {
               ask={ask}
               canAsk={canAskActiveSession}
               onDetachFile={detachFile}
-              settings={settings}
             />
           )}
           {screenState !== "empty" && screenState !== "answered" && (
@@ -523,7 +522,6 @@ export function App() {
               onDetachFile={detachFile}
               onRetryFailedFiles={retryFailedFiles}
               openSettings={openSettings}
-              settings={settings}
             />
           )}
           {screenState === "answered" && (
@@ -541,7 +539,6 @@ export function App() {
               onArtifactSelect={onArtifactSelect}
               onDetachFile={detachFile}
               onAnswerRunQuestion={answerRunQuestion}
-              settings={settings}
               contextProfile={contextProfile}
             />
           )}
@@ -681,7 +678,6 @@ function EmptyState(props: {
   ask: (event?: FormEvent) => void;
   canAsk: boolean;
   onDetachFile: (fileId: string) => Promise<void>;
-  settings: Settings | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -710,7 +706,6 @@ function EmptyState(props: {
         files={[]}
         busy={props.busy}
         onDetachFile={props.onDetachFile}
-        settings={props.settings}
       />
     </section>
   );
@@ -728,7 +723,6 @@ function ProcessingView(props: {
   onDetachFile: (fileId: string) => Promise<void>;
   onRetryFailedFiles: () => Promise<void>;
   openSettings: () => void;
-  settings: Settings | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const ready = props.files.filter((file) => file.status === "ready").length;
@@ -761,7 +755,7 @@ function ProcessingView(props: {
           <input ref={inputRef} className="hidden" type="file" multiple accept={acceptedTypes} onChange={(event) => handleFileInputChange(event, props.upload)} />
         </>
       )}
-      <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk || props.busy || activeLoading} files={activeLoading ? [] : props.files} onDetachFile={props.onDetachFile} busy={props.busy || activeLoading} settings={props.settings} />
+      <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk || props.busy || activeLoading} files={activeLoading ? [] : props.files} onDetachFile={props.onDetachFile} busy={props.busy || activeLoading} />
     </section>
   );
 }
@@ -797,7 +791,6 @@ function Transcript(props: {
   onArtifactSelect: (artifact: Artifact) => void;
   onDetachFile: (fileId: string) => Promise<void>;
   onAnswerRunQuestion: (runId: string, questionId: string, selectedOption: string | null, freeText?: string, attachedFileIds?: string[], answer?: Record<string, unknown>) => Promise<void>;
-  settings: Settings | null;
   contextProfile: ContextProfile;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -897,7 +890,7 @@ function Transcript(props: {
       </div>
       <div className="composer-dock">
         <SessionCostSummary usage={props.usageSummary} />
-        <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk} files={props.files} busy={props.busy} onDetachFile={props.onDetachFile} settings={props.settings} />
+        <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk} files={props.files} busy={props.busy} onDetachFile={props.onDetachFile} />
       </div>
     </section>
   );
@@ -1093,7 +1086,6 @@ function Composer(props: {
   files: FileRecord[];
   busy?: boolean;
   onDetachFile?: (fileId: string) => Promise<void>;
-  settings?: Settings | null;
 }) {
   const ready = props.files.filter((file) => file.status === "ready").length;
   const helper = ready > 0
@@ -1134,7 +1126,6 @@ function Composer(props: {
         onKeyDown={onKeyDown}
         placeholder={ready > 0 ? "Ask a question about these files" : "You can draft a prompt while waiting for a ready file"}
       />
-      <AgentSetupPreview value={props.value} files={props.files} settings={props.settings ?? null} />
       <div className="composer-bar">
         <span className="mono">{helper}</span>
         <button className="send-btn" disabled={props.disabled || !props.value.trim()} type="submit">
@@ -1143,52 +1134,6 @@ function Composer(props: {
       </div>
     </form>
   );
-}
-
-function AgentSetupPreview({ value, files, settings }: { value: string; files: FileRecord[]; settings: Settings | null }) {
-  const plan = useMemo(() => previewAgentSetup(value, files, settings), [files, settings, value]);
-  if (!plan) return null;
-  return (
-    <div className="agent-setup-preview" aria-label="Agent Setup preview">
-      <div>
-        <span className="mono caps">Agent Setup</span>
-        <strong>{plan.title}</strong>
-        <small>{plan.note}</small>
-      </div>
-      <div className="agent-setup-grid">
-        {plan.items.map((item) => (
-          <span key={item.label}>
-            <b>{item.label}</b>
-            <em>{item.value}</em>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function previewAgentSetup(value: string, files: FileRecord[], settings: Settings | null) {
-  const text = value.trim().toLowerCase();
-  if (!text || text.length < 6) return null;
-  const asksForChart = /chart|graph|plot|survey|설문|차트|그래프/.test(text);
-  const asksForDraft = /draft|report|document|new file|write|보고서|문서|초안/.test(text);
-  const asksForAnalysis = /analy[sz]e|insight|compare|분석|인사이트/.test(text);
-  if (!asksForChart && !asksForDraft && !asksForAnalysis) return null;
-  const ready = files.filter((file) => file.status === "ready");
-  const hasTable = ready.some((file) => ["CSV", "TSV", "TXT"].includes(file.type));
-  const routing = settings?.model_routing_mode ?? "auto";
-  const reasoning = asksForChart || asksForAnalysis ? (settings?.reasoning_effort ?? "medium") : "none";
-  const title = asksForChart && hasTable ? "Recommended chart workflow" : asksForDraft ? "Recommended draft workflow" : "Recommended analysis workflow";
-  return {
-    title,
-    note: "Broad requests may ask whether to interview you briefly or proceed automatically.",
-    items: [
-      { label: "routing", value: routing },
-      { label: "analysis", value: `${settings?.analysis_model ?? "default"} · ${reasoning}` },
-      { label: "writing", value: settings?.writing_model ?? settings?.chat_model ?? "default" },
-      { label: "tools", value: asksForChart && hasTable ? "CSV parser · survey profiler · chart builder" : "retrieval · citation reviewer · repair" },
-    ],
-  };
 }
 
 function RightPanel(props: {

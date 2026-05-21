@@ -1119,52 +1119,6 @@ button { cursor: pointer; }
   color: var(--ink);
   font-size: 17px;
 }
-.agent-setup-preview {
-  border-top: 1px solid var(--rule-2);
-  padding: 10px 12px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr);
-  gap: 12px;
-  background: var(--paper);
-}
-.agent-setup-preview span,
-.agent-setup-preview small,
-.agent-setup-preview em {
-  display: block;
-}
-.agent-setup-preview strong {
-  display: block;
-  margin: 2px 0;
-  font-size: 13px;
-}
-.agent-setup-preview small,
-.agent-setup-preview em {
-  color: var(--ink-4);
-  font-style: normal;
-  font-size: 11px;
-}
-.agent-setup-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-}
-.agent-setup-grid span {
-  border: 1px solid var(--rule-2);
-  background: var(--card);
-  padding: 6px;
-  min-width: 0;
-}
-.agent-setup-grid b {
-  display: block;
-  font-family: var(--f-mono);
-  color: var(--ink-3);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.agent-setup-grid em {
-  overflow-wrap: anywhere;
-}
 .composer-bar {
   border-top: 1px solid var(--rule-2);
   display: flex;
@@ -1764,8 +1718,6 @@ button { cursor: pointer; }
   .topbar .provider-pill, .topbar .caps, .edition-controls { display: none; }
   .empty-copy h1 { font-size: 34px; }
   .processing-view, .turns, .composer-dock { padding-left: 18px; padding-right: 18px; }
-  .agent-setup-preview { grid-template-columns: 1fr; }
-  .agent-setup-grid { grid-template-columns: 1fr; }
   .file-row { grid-template-columns: 42px minmax(0, 1fr); }
   .file-row > span { grid-column: 2; }
 }

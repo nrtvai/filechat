@@ -852,16 +852,20 @@ describe("App", () => {
     });
   });
 
-  it("shows agent setup preview for survey chart requests without blocking send", async () => {
+  it("keeps survey chart requests in a plain chat composer and preserves send", async () => {
     const survey = { ...file("fil_survey", "survey.csv"), type: "CSV" };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
       if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
       if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
       if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([survey]);
-      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([message("msg_1", "ses_new", "assistant", "Ready")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/runs") && init?.method === "POST") {
+        return Response.json(run("run_chart", "completed", "Make a chart about the survey result", "msg_answer"));
+      }
       if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
       if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
       return Response.json({});
@@ -871,12 +875,25 @@ describe("App", () => {
     render(<App />);
 
     const input = await screen.findByLabelText("Ask a question about the selected files");
+    await screen.findByText(/1 ready source/);
+    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
     await act(async () => {
-      fireEvent.change(input, { target: { value: "Make a chart about the survey result" } });
+      valueSetter?.call(input, "Make a chart about the survey result");
+      fireEvent.input(input, { bubbles: true });
     });
+    await waitFor(() => expect(input).toHaveValue("Make a chart about the survey result"));
 
-    expect(await screen.findByLabelText("Agent Setup preview")).toBeInTheDocument();
-    expect(screen.getByText(/CSV parser/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Agent Setup preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent Setup")).not.toBeInTheDocument();
+    expect(screen.queryByText(/CSV parser/)).not.toBeInTheDocument();
+
+    fireEvent.click(await enabledAskButton());
+
+    await waitFor(() => expect(runPostCount(fetchMock)).toBe(1));
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/ses_new/runs", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ content: "Make a chart about the survey result" })
+    }));
   });
 
   it("renders a pending assistant turn while a question is generating", async () => {
