@@ -154,40 +154,144 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
         .replace(/"/g, String.fromCharCode(92) + '"');
     }
 
-    function runWorkflow() {
+    function buildFinalOutputCsv(inputFileTexts) {
+      const texts = inputFileTexts || {};
       const rows = [
-        ['output_file', 'required_input_files', 'transform_count', 'manual_step_count'],
-        [
-          'reconciliation-output.csv',
-          workflow.inputs.join('|'),
-          String(workflow.transforms.length),
-          String(workflow.manualStepsReplaced.length)
-        ]
+        ['output_file', 'required_input_files', 'transform_count', 'manual_step_count', 'input_file', 'row_count', 'column_count', 'character_count', 'content_checksum', 'content_preview'],
+        ...workflow.inputs.map(inputName => {
+          const text = Object.prototype.hasOwnProperty.call(texts, inputName) ? String(texts[inputName]) : '';
+          const summary = summarizeInputFileContent(inputName, text);
+          return [
+            'reconciliation-output.csv',
+            workflow.inputs.join('|'),
+            String(workflow.transforms.length),
+            String(workflow.manualStepsReplaced.length),
+            inputName,
+            String(summary.rowCount),
+            String(summary.columnCount),
+            String(text.length),
+            summary.checksum,
+            summary.preview
+          ];
+        })
       ];
       return rows.map(row => row.map(toCsvCell).join(',')).join('\\n') + '\\n';
     }
 
+    function runWorkflow(inputFileTexts) {
+      return buildFinalOutputCsv(inputFileTexts);
+    }
+
+    function summarizeInputFileContent(inputName, text) {
+      const normalizedText = String(text).replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');
+      if (isBinarySpreadsheetInput(inputName)) {
+        return {
+          rowCount: 'N/A',
+          columnCount: 'N/A',
+          checksum: lightweightChecksum(normalizedText),
+          preview: 'Binary spreadsheet content is not parsed in this local HTML app.'
+        };
+      }
+      const lines = normalizedText.length === 0 ? [] : normalizedText.replace(/\\n$/, '').split('\\n');
+      const delimiter = /\\.tsv$/i.test(inputName) || (lines[0] || '').indexOf('\\t') !== -1 ? '\\t' : ',';
+      const headerCells = lines.length === 0 ? [] : splitDelimitedLine(lines[0], delimiter);
+      return {
+        rowCount: lines.length,
+        columnCount: headerCells.length,
+        checksum: lightweightChecksum(normalizedText),
+        preview: lines.length === 0 ? '' : splitDelimitedLine(lines[0], delimiter)[0]
+      };
+    }
+
+    function isBinarySpreadsheetInput(inputName) {
+      return /\\.(?:xls|xlsx|xlsm)$/i.test(inputName);
+    }
+
+    function splitDelimitedLine(line, delimiter) {
+      const cells = [];
+      let cell = '';
+      let inQuotes = false;
+      for (let index = 0; index < line.length; index += 1) {
+        const char = line.charAt(index);
+        if (char === '"') {
+          if (inQuotes && line.charAt(index + 1) === '"') {
+            cell += '"';
+            index += 1;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (char === delimiter && !inQuotes) {
+          cells.push(cell);
+          cell = '';
+        } else {
+          cell += char;
+        }
+      }
+      cells.push(cell);
+      return cells;
+    }
+
+    function lightweightChecksum(text) {
+      let hash = 2166136261;
+      for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619) >>> 0;
+      }
+      return hash.toString(16).padStart(8, '0');
+    }
+
     function toCsvCell(value) {
       const text = String(value);
-      const first = text.charAt(0);
-      const safeText = first === '=' || first === '+' || first === '-' || first === '@' || first.charCodeAt(0) === 9 || first.charCodeAt(0) === 13 ? "'" + text : text;
+      const safeText = /^[\\u0000-\\u0020]*[=+@-]/.test(text) ? "'" + text : text;
       return /[",\\n]/.test(safeText) ? '"' + safeText.replace(/"/g, '""') + '"' : safeText;
     }
 
-    function downloadFinalOutputCsv() {
+    async function getSelectedInputFileTexts() {
+      let entries;
+      try {
+        entries = await Promise.all(workflow.inputs.map(async inputName => {
+          const input = document.querySelector('[data-workflow-input="' + cssEscape(inputName) + '"]');
+          const file = input && input.files && input.files.length > 0 ? input.files[0] : null;
+          if (!file) {
+            return [inputName, ''];
+          }
+          try {
+            return [inputName, await file.text()];
+          } catch (error) {
+            throw new Error('Could not read selected input file "' + inputName + '". Choose the file again and retry.');
+          }
+        }));
+      } catch (error) {
+        const message = error && error.message ? error.message : 'Could not read selected input files. Choose the files again and retry.';
+        document.getElementById('status').textContent = message;
+        throw new Error(message);
+      }
+      return entries.reduce((texts, entry) => {
+        texts[entry[0]] = entry[1];
+        return texts;
+      }, {});
+    }
+
+    async function downloadFinalOutputCsv() {
       const missing = getMissingWorkflowInputs();
       if (missing.length > 0) {
         document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', ');
         return;
       }
-      const csv = runWorkflow();
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const a = document.createElement('a');
-      a.download = 'reconciliation-output.csv';
-      a.href = URL.createObjectURL(blob);
-      a.click();
-      URL.revokeObjectURL(a.href);
-      document.getElementById('status').textContent = 'Generated reconciliation-output.csv from deterministic local transforms.';
+      try {
+        const inputFileTexts = await getSelectedInputFileTexts();
+        const csv = buildFinalOutputCsv(inputFileTexts);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.download = 'reconciliation-output.csv';
+        a.href = URL.createObjectURL(blob);
+        a.click();
+        URL.revokeObjectURL(a.href);
+        document.getElementById('status').textContent = 'Generated reconciliation-output.csv from selected input file contents using deterministic local transforms.';
+      } catch (error) {
+        const message = error && error.message ? error.message : 'Could not generate reconciliation-output.csv from the selected input files.';
+        document.getElementById('status').textContent = message;
+      }
     }
 
     document.querySelectorAll('[data-workflow-input]').forEach(input => {

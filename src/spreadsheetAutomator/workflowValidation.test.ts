@@ -1,14 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateLocalHtmlWorkflowApp, validateLocalHtmlWorkflowApp } from "./workflowValidation";
 
-function runGeneratedWorkflowCsv(html: string) {
-  const scriptBody = html.match(/<script>\n([\s\S]*?)\n  <\/script>/)?.[1];
+function getGeneratedWorkflowFunction<T>(html: string, functionName: string): T {
+  const scriptBody = html.match(/<script>\n([\s\S]*?)\n\s\s<\/script>/)?.[1];
   expect(scriptBody).toBeTruthy();
-  const runWorkflow = new Function(`${scriptBody}\nreturn runWorkflow;`)() as () => string;
-  return runWorkflow();
+  return new Function(`${scriptBody}\nreturn ${functionName};`)() as T;
+}
+
+function runGeneratedWorkflowCsv(html: string, inputFileTexts: Record<string, string> = {}) {
+  const buildFinalOutputCsv = getGeneratedWorkflowFunction<(inputFileTexts?: Record<string, string>) => string>(
+    html,
+    "buildFinalOutputCsv",
+  );
+  return buildFinalOutputCsv(inputFileTexts);
 }
 
 describe("generateLocalHtmlWorkflowApp", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("returns a complete self-contained local HTML app with a deterministic final CSV download contract", () => {
     const app = generateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",
@@ -44,8 +55,9 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).toContain("new Blob");
     expect(app.html).toContain("text/csv");
     expect(app.html).toContain("a.download = 'reconciliation-output.csv'");
-    expect(app.html).toContain("['output_file', 'required_input_files', 'transform_count', 'manual_step_count']");
-    expect(app.html).toContain("workflow.inputs.join('|')");
+    expect(app.html).toContain("function buildFinalOutputCsv(inputFileTexts)");
+    expect(app.html).toContain("'input_file', 'row_count', 'column_count', 'character_count', 'content_checksum'");
+    expect(app.html).toContain("await file.text()");
     expect(app.html).toContain("String(workflow.manualStepsReplaced.length)");
     expect(app.html).not.toMatch(/<script\s[^>]*\bsrc\s*=/i);
 
@@ -100,11 +112,133 @@ describe("generateLocalHtmlWorkflowApp", () => {
       },
     });
 
-    const csv = runGeneratedWorkflowCsv(app.html);
+    const csv = runGeneratedWorkflowCsv(app.html, {
+      '=HYPERLINK("https://evil.test","x").csv': "=cmd|' /C calc'!A0,amount\n123,10",
+      "safe.csv": "sku,qty\nA-1,4",
+    });
 
     expect(csv).toContain("required_input_files");
     expect(csv).toContain("'=" + "HYPERLINK");
     expect(csv).not.toContain("\n=HYPERLINK");
+    expect(csv).toContain("'=" + "cmd");
+    expect(csv).not.toContain("\n=cmd");
+  });
+
+  it("neutralizes formula payloads with leading whitespace or control characters", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Formula-safe workflow",
+      workflow: {
+        inputs: ["orders.csv", "safe.csv"],
+        manualStepsReplaced: ["copy rows into final workbook"],
+        transforms: [{ id: "copy-safe", description: "Copy rows deterministically", deterministic: true }],
+      },
+    });
+
+    const csv = runGeneratedWorkflowCsv(app.html, {
+      "orders.csv": "  =cmd|' /C calc'!A0,amount\n123,10",
+      "safe.csv": "sku,qty\nA-1,4",
+    });
+
+    expect(csv).toContain("'  =cmd");
+    expect(csv).not.toContain("\n  =cmd");
+  });
+
+  it("builds deterministic final CSV rows from selected local input file contents", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Content-based workflow",
+      workflow: {
+        inputs: ["orders.csv", "stock.tsv"],
+        manualStepsReplaced: ["copy order rows into stock spreadsheet"],
+        transforms: [{ id: "summarize-inputs", description: "Summarize selected input files", deterministic: true }],
+      },
+    });
+
+    const inputTexts = {
+      "orders.csv": "sku,qty\nA-1,2\nB-2,3\n",
+      "stock.tsv": "sku\ton_hand\nA-1\t8\n",
+    };
+    const csvA = runGeneratedWorkflowCsv(app.html, inputTexts);
+    const csvB = runGeneratedWorkflowCsv(app.html, {
+      ...inputTexts,
+      "orders.csv": "sku,qty\nA-1,200\nB-2,3\n",
+    });
+    const csvARepeat = runGeneratedWorkflowCsv(app.html, inputTexts);
+
+    expect(csvA).toBe(csvARepeat);
+    expect(csvA).not.toBe(csvB);
+    expect(csvA.split("\n")[0]).toBe(
+      "output_file,required_input_files,transform_count,manual_step_count,input_file,row_count,column_count,character_count,content_checksum,content_preview",
+    );
+    expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,orders.csv,3,2,");
+    expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,stock.tsv,2,2,");
+  });
+
+  it("summarizes binary spreadsheet inputs as opaque local content instead of delimited rows", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Workbook workflow",
+      workflow: {
+        inputs: ["ledger.xlsx", "bank_export.xlsm", "notes.xls"],
+        manualStepsReplaced: ["copy workbook rows into a reconciliation spreadsheet"],
+        transforms: [{ id: "summarize-inputs", description: "Summarize selected input files", deterministic: true }],
+      },
+    });
+
+    const csv = runGeneratedWorkflowCsv(app.html, {
+      "ledger.xlsx": "PK\u0003\u0004fake workbook bytes",
+      "bank_export.xlsm": "macro workbook bytes",
+      "notes.xls": "legacy workbook bytes",
+    });
+
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
+    expect(app.html.match(/accept="\.csv,\.tsv,\.xls,\.xlsx,\.xlsm"/g)).toHaveLength(3);
+    expect(csv).toContain(
+      "reconciliation-output.csv,ledger.xlsx|bank_export.xlsm|notes.xls,1,1,ledger.xlsx,N/A,N/A,",
+    );
+    expect(csv).toContain("Binary spreadsheet content is not parsed in this local HTML app.");
+    expect(csv).not.toContain("ledger.xlsx,1,1");
+  });
+
+  it("reports file-read failures without creating a Blob or triggering a download", async () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Read failure workflow",
+      workflow: {
+        inputs: ["orders.csv"],
+        manualStepsReplaced: ["copy rows into final workbook"],
+        transforms: [{ id: "copy-safe", description: "Copy rows deterministically", deterministic: true }],
+      },
+    });
+    const status = { textContent: "" };
+    const fileInput = {
+      files: [{ text: vi.fn().mockRejectedValue(new Error("permission denied")) }],
+      addEventListener: vi.fn(),
+    };
+    const blobSpy = vi.fn();
+    const clickSpy = vi.fn();
+
+    vi.stubGlobal("window", { CSS: { escape: (value: string) => value } });
+    vi.stubGlobal("document", {
+      querySelector: vi.fn((selector: string) => (selector.includes('data-workflow-input="orders.csv"') ? fileInput : null)),
+      querySelectorAll: vi.fn(() => [fileInput]),
+      getElementById: vi.fn(() => status),
+      createElement: vi.fn(() => ({ click: clickSpy })),
+    });
+    vi.stubGlobal("Blob", blobSpy);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:csv"),
+      revokeObjectURL: vi.fn(),
+    });
+    const downloadFinalOutputCsv = getGeneratedWorkflowFunction<() => Promise<void>>(
+      app.html,
+      "downloadFinalOutputCsv",
+    );
+
+    await downloadFinalOutputCsv();
+
+    expect(status.textContent).toBe(
+      'Could not read selected input file "orders.csv". Choose the file again and retry.',
+    );
+    expect(blobSpy).not.toHaveBeenCalled();
+    expect(clickSpy).not.toHaveBeenCalled();
   });
 });
 
