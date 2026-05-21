@@ -572,7 +572,7 @@ describe("App", () => {
 
     expect(await screen.findByText("No answer was generated.")).toBeVisible();
     expect(screen.getByText("FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.")).toBeVisible();
-    expect(screen.getByText("No citations attached to this answer.")).toBeInTheDocument();
+    expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
   });
 
   it("names failed source context when an uncited answer has skipped files", async () => {

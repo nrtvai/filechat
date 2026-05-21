@@ -83,11 +83,19 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
     errors.push("html must include a local final output CSV download action implemented with a browser Blob and deterministic filename");
   }
 
+  if (!hasRequiredInputValidationBeforeDownload(app.html, app.workflow.inputs)) {
+    errors.push("html must validate every required workflow input file before allowing the final output download");
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
 function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["workflow"]) {
   const inputItems = workflow.inputs.map((input) => `<li><code>${escapeHtml(input)}</code></li>`).join("");
+  const initialMissingInputs = workflow.inputs.join(", ");
+  const initialStatus = initialMissingInputs.length > 0
+    ? `Cannot generate final output until required input files are selected. Missing: ${initialMissingInputs}`
+    : "All required input files selected. Ready to generate reconciliation-output.csv locally.";
   const fileInputItems = workflow.inputs
     .map(
       (input) => `<label>${escapeHtml(input)} <input type="file" accept=".csv,.tsv,.xls,.xlsx,.xlsm" data-workflow-input="${escapeHtml(input)}"></label>`,
@@ -123,9 +131,23 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   <h2>Deterministic transforms</h2>
   <ol>${transformItems}</ol>
   <button type="button" onclick="downloadFinalOutputCsv()">Download final output CSV</button>
-  <pre id="status">Ready to generate reconciliation-output.csv locally.</pre>
+  <pre id="status">${escapeHtml(initialStatus)}</pre>
   <script>
     const workflow = ${workflowJson};
+
+    function getMissingWorkflowInputs() {
+      return workflow.inputs.filter(inputName => {
+        const input = document.querySelector('[data-workflow-input="' + cssEscape(inputName) + '"]');
+        return !input || !input.files || input.files.length === 0;
+      });
+    }
+
+    function cssEscape(value) {
+      if (window.CSS && typeof window.CSS.escape === 'function') {
+        return window.CSS.escape(value);
+      }
+      return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
 
     function runWorkflow() {
       const rows = [
@@ -141,6 +163,11 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
     }
 
     function downloadFinalOutputCsv() {
+      const missing = getMissingWorkflowInputs();
+      if (missing.length > 0) {
+        document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', ');
+        return;
+      }
       const csv = runWorkflow();
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const a = document.createElement('a');
@@ -150,6 +177,15 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
       URL.revokeObjectURL(a.href);
       document.getElementById('status').textContent = 'Generated reconciliation-output.csv from deterministic local transforms.';
     }
+
+    document.querySelectorAll('[data-workflow-input]').forEach(input => {
+      input.addEventListener('change', () => {
+        const missing = getMissingWorkflowInputs();
+        document.getElementById('status').textContent = missing.length === 0
+          ? 'All required input files selected. Ready to generate reconciliation-output.csv locally.'
+          : 'Cannot generate final output until required input files are selected. Missing: ' + missing.join(', ');
+      });
+    });
   </script>
 </body>
 </html>`;
@@ -213,6 +249,43 @@ function hasLocalFinalOutputDownload(html: string) {
   const setsDownloadFilename = /\.download\s*=\s*["']reconciliation-output\.csv["']/.test(html)
     || /download\s*=\s*["']reconciliation-output\.csv["']/.test(normalized);
   return hasVisibleDownloadAction && hasBlobCsv && createsLocalObjectUrl && setsDownloadFilename;
+}
+
+function hasRequiredInputValidationBeforeDownload(html: string, requiredInputs: string[]) {
+  const normalized = html.toLowerCase();
+  const workflowInputControls = getWorkflowInputControls(html);
+  const hasEveryWorkflowFileInput = requiredInputs.every((inputName) => workflowInputControls.has(inputName));
+  const hasMissingInputFunction = /function\s+getmissingworkflowinputs\s*\(\s*\)/i.test(html);
+  const validatesDeclaredWorkflowInputs = contains(normalized, "workflow.inputs.filter") && contains(normalized, "data-workflow-input");
+  const checksSelectedFiles = contains(normalized, ".files") && contains(normalized, "files.length");
+  const blocksDownloadWhenMissing = /if\s*\(\s*missing\.length\s*>\s*0\s*\)[\s\S]*return\s*;/i.test(html);
+  const explainsBlockedDownload = contains(normalized, "select all required input files before downloading")
+    || contains(normalized, "cannot generate final output until required input files are selected");
+  return hasEveryWorkflowFileInput
+    && hasMissingInputFunction
+    && validatesDeclaredWorkflowInputs
+    && checksSelectedFiles
+    && blocksDownloadWhenMissing
+    && explainsBlockedDownload;
+}
+
+function getWorkflowInputControls(html: string) {
+  const controls = new Set<string>();
+  const dataWorkflowInputAttribute = /\bdata-workflow-input\s*=\s*(["'])(.*?)\1/gi;
+  let match: RegExpExecArray | null;
+  while ((match = dataWorkflowInputAttribute.exec(html)) !== null) {
+    controls.add(decodeHtmlAttribute(match[2]));
+  }
+  return controls;
+}
+
+function decodeHtmlAttribute(value: string) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 function contains(value: string, search: string) {

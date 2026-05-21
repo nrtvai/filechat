@@ -26,6 +26,13 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html.match(/accept="\.csv,\.tsv,\.xls,\.xlsx,\.xlsm"/g)).toHaveLength(2);
     expect(app.html).toContain('data-workflow-input="sales_orders.csv"');
     expect(app.html).toContain('data-workflow-input="warehouse_stock_units.csv"');
+    expect(app.html).toContain("function getMissingWorkflowInputs()");
+    expect(app.html).toContain(
+      "<pre id=\"status\">Cannot generate final output until required input files are selected. Missing: sales_orders.csv, warehouse_stock_units.csv</pre>",
+    );
+    expect(app.html).not.toContain("<pre id=\"status\">Ready to generate reconciliation-output.csv locally.</pre>");
+    expect(app.html).toContain("Select all required input files before downloading: ");
+    expect(app.html).toContain("Cannot generate final output until required input files are selected.");
     expect(app.html).toContain("Download final output CSV");
     expect(app.html).toContain("new Blob");
     expect(app.html).toContain("text/csv");
@@ -62,7 +69,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
   it("accepts a deterministic local HTML workflow app with Mac and Windows run instructions", () => {
     const result = validateLocalHtmlWorkflowApp({
       title: "Weekly inventory reorder builder",
-      html: "<!doctype html><html><body><button>Download final output CSV</button><script>function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
+      html: "<!doctype html><html><body><input type='file' data-workflow-input='sales_orders.csv'><input type='file' data-workflow-input='warehouse_stock_units.csv'><button>Download final output CSV</button><pre id='status'></pre><script>const workflow = { inputs: ['sales_orders.csv', 'warehouse_stock_units.csv'] }; function getMissingWorkflowInputs(){ return workflow.inputs.filter(inputName => { const input = document.querySelector('[data-workflow-input=\"' + inputName + '\"]'); return !input || !input.files || input.files.length === 0; }); } function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const missing = getMissingWorkflowInputs(); if (missing.length > 0) { document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', '); return; } const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
       runInstructions: {
         mac: "Open index.html in Safari or Chrome on your Mac.",
         windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
@@ -104,6 +111,7 @@ describe("validateLocalHtmlWorkflowApp", () => {
       "workflow.outputs must list at least one generated spreadsheet/workflow output",
       "workflow.outputs must include the deterministic reconciliation-output.csv final output",
       "html must include a local final output CSV download action implemented with a browser Blob and deterministic filename",
+      "html must validate every required workflow input file before allowing the final output download",
     ]);
   });
 
@@ -125,6 +133,46 @@ describe("validateLocalHtmlWorkflowApp", () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toContain("html must include a local final output CSV download action implemented with a browser Blob and deterministic filename");
+  });
+
+  it("rejects local HTML apps that allow final output download without validating required input files", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly reconciliation builder",
+      html: "<!doctype html><html><body><form><input type='file' data-workflow-input='forecast.csv'><input type='file' data-workflow-input='actuals.csv'></form><button>Download final output CSV</button><pre id='status'></pre><script>function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["forecast.csv", "actuals.csv"],
+        manualStepsReplaced: ["copy rows from forecast.csv and paste matched rows into actuals.csv"],
+        transforms: [{ id: "reconcile", description: "Reconcile rows by SKU", deterministic: true }],
+        outputs: ["reconciliation-output.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("html must validate every required workflow input file before allowing the final output download");
+  });
+
+  it("rejects local HTML apps that omit a declared workflow input from file controls and validation", () => {
+    const result = validateLocalHtmlWorkflowApp({
+      title: "Weekly reconciliation builder",
+      html: "<!doctype html><html><body><form><input type='file' data-workflow-input='forecast.csv'></form><button>Download final output CSV</button><pre id='status'></pre><script>const workflow = { inputs: ['forecast.csv', 'actuals.csv'] }; function getMissingWorkflowInputs(){ const input = document.querySelector('[data-workflow-input=\"forecast.csv\"]'); return input.files && input.files.length > 0 ? [] : ['forecast.csv']; } function runWorkflow(input){ return input; } function downloadFinalOutputCsv(){ const missing = getMissingWorkflowInputs(); if (missing.length > 0) { document.getElementById('status').textContent = 'Select all required input files before downloading: ' + missing.join(', '); return; } const blob = new Blob(['a,b'], { type: 'text/csv' }); const a = document.createElement('a'); a.download = 'reconciliation-output.csv'; a.href = URL.createObjectURL(blob); a.click(); }</script></body></html>",
+      runInstructions: {
+        mac: "Open index.html in Safari or Chrome on your Mac.",
+        windows: "Double-click index.html or open it in Edge/Chrome on Windows.",
+      },
+      workflow: {
+        inputs: ["forecast.csv", "actuals.csv"],
+        manualStepsReplaced: ["copy rows from forecast.csv and paste matched rows into actuals.csv"],
+        transforms: [{ id: "reconcile", description: "Reconcile rows by SKU", deterministic: true }],
+        outputs: ["reconciliation-output.csv"],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("html must validate every required workflow input file before allowing the final output download");
   });
 
   it("rejects local HTML apps whose workflow output contract omits the deterministic final CSV", () => {
