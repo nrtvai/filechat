@@ -115,7 +115,7 @@ export function App() {
   const [composer, setComposer] = useState("");
   const [railOpen, setRailOpen] = useState(true);
   const [railMode, setRailMode] = useState<"sessions" | "files">("sessions");
-  const [rightOpen, setRightOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(false);
   const [rightTab, setRightTab] = useState<RightTab>("citations");
   const [busy, setBusy] = useState(false);
   const [activeLoading, setActiveLoading] = useState(true);
@@ -1196,7 +1196,19 @@ function RightPanel(props: {
   currentUser: CurrentUser | null;
 }) {
   if (!props.open) {
-    return <aside className="right-closed"><button onClick={() => props.setOpen(true)}>Sources</button></aside>;
+    return (
+      <aside className="right-closed">
+        <button
+          aria-expanded="false"
+          onClick={() => {
+            props.setTab("citations");
+            props.setOpen(true);
+          }}
+        >
+          Sources
+        </button>
+      </aside>
+    );
   }
   return (
     <aside className="right-panel">

@@ -216,6 +216,16 @@ async function enabledAskButton() {
   return button!;
 }
 
+async function openRightPanelTab(name: string) {
+  const existingTab = screen.queryByRole("button", { name });
+  if (existingTab) {
+    fireEvent.click(existingTab);
+    return;
+  }
+  fireEvent.click(await screen.findByRole("button", { name: "Sources" }));
+  fireEvent.click(await screen.findByRole("button", { name }));
+}
+
 function fileListOf(files: File[]): FileList {
   const entries = files.reduce<Record<number, File>>((acc, file, index) => {
     acc[index] = file;
@@ -279,6 +289,37 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions", expect.objectContaining({ method: "POST", body: JSON.stringify({}) }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/sessions/ses_new/files", expect.anything()));
     expect(fetchMock).not.toHaveBeenCalledWith("/api/sessions/ses_old/files", expect.anything());
+  });
+
+  it("starts in a chat-first layout with the source/debug panel collapsed", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Attach files")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Sources" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Citations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    fireEvent.click(await screen.findByRole("button", { name: "artifacts" }));
+    expect(await screen.findByText("No artifacts yet.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    expect(await screen.findByText("No citations yet.")).toBeVisible();
   });
 
   it("filters the left-rail session list by title", async () => {
@@ -1024,7 +1065,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "settings" }));
+    await openRightPanelTab("settings");
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-or-test" } });
     fireEvent.click(screen.getByRole("button", { name: /Save key/i }));
 
@@ -1079,7 +1120,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "settings" }));
+    await openRightPanelTab("settings");
     expect(screen.getByText("Managed by admins")).toBeInTheDocument();
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "admin" })).not.toBeInTheDocument();
@@ -1103,7 +1144,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "settings" }));
+    await openRightPanelTab("settings");
     expect(screen.getByText("Community configuration active")).toBeInTheDocument();
     expect(screen.getByText(/FILECHAT_EDITION=enterprise/)).toBeInTheDocument();
     expect(screen.getByText(/FILECHAT_TRUSTED_AUTH_HEADERS=true/)).toBeInTheDocument();
@@ -1233,7 +1274,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "admin" }));
+    await openRightPanelTab("admin");
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-or-admin" } });
     fireEvent.click(screen.getByRole("button", { name: /Save key/i }));
 
@@ -1293,7 +1334,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "admin" }));
+    await openRightPanelTab("admin");
     fireEvent.click(await screen.findByRole("button", { name: /Clear saved key/i }));
 
     await waitFor(() => {
@@ -1839,6 +1880,7 @@ describe("App", () => {
         })
       );
     });
+    await openRightPanelTab("runs");
     expect(await screen.findByText("Produce selected artifacts from the current session sources.")).toBeInTheDocument();
   });
 
@@ -1873,7 +1915,7 @@ describe("App", () => {
 
     expect(await screen.findByText("Survey themes")).toBeInTheDocument();
     expect(screen.queryByText("Survey data preview")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "artifacts" }));
+    await openRightPanelTab("artifacts");
     expect(await screen.findByLabelText("Artifact list")).toHaveTextContent("Survey data preview");
   });
 
@@ -1992,7 +2034,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "runs" }));
+    await openRightPanelTab("runs");
     expect(await screen.findByText("Agent activity")).toBeInTheDocument();
     expect(screen.getAllByText("plan task").length).toBeGreaterThan(0);
     expect(screen.getAllByText("persist response").length).toBeGreaterThan(0);
@@ -2035,7 +2077,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "runs" }));
+    await openRightPanelTab("runs");
     expect(await screen.findByText("completed with warning")).toBeInTheDocument();
     expect(screen.getByText("Planner intent")).toBeInTheDocument();
     expect(screen.getByText("Executable bundle")).toBeInTheDocument();
@@ -2138,7 +2180,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "runs" }));
+    await openRightPanelTab("runs");
     expect(await screen.findAllByText("Selected chat model did not return structured output.")).not.toHaveLength(0);
   });
 
@@ -2170,7 +2212,7 @@ describe("App", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "runs" }));
+    await openRightPanelTab("runs");
     expect(await screen.findByText("Loaded ready source files; vector search unavailable")).toBeInTheDocument();
     expect(screen.getByText("OpenRouter key needs attention")).toBeInTheDocument();
     expect(screen.queryByText("failed")).not.toBeInTheDocument();

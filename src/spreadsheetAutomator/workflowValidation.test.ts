@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { generateLocalHtmlWorkflowApp, validateLocalHtmlWorkflowApp } from "./workflowValidation";
 
+function runGeneratedWorkflowCsv(html: string) {
+  const scriptBody = html.match(/<script>\n([\s\S]*?)\n  <\/script>/)?.[1];
+  expect(scriptBody).toBeTruthy();
+  const runWorkflow = new Function(`${scriptBody}\nreturn runWorkflow;`)() as () => string;
+  return runWorkflow();
+}
+
 describe("generateLocalHtmlWorkflowApp", () => {
   it("returns a complete self-contained local HTML app with a deterministic final CSV download contract", () => {
     const app = generateLocalHtmlWorkflowApp({
@@ -37,6 +44,9 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).toContain("new Blob");
     expect(app.html).toContain("text/csv");
     expect(app.html).toContain("a.download = 'reconciliation-output.csv'");
+    expect(app.html).toContain("['output_file', 'required_input_files', 'transform_count', 'manual_step_count']");
+    expect(app.html).toContain("workflow.inputs.join('|')");
+    expect(app.html).toContain("String(workflow.manualStepsReplaced.length)");
     expect(app.html).not.toMatch(/<script\s[^>]*\bsrc\s*=/i);
 
     expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
@@ -62,6 +72,23 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).not.toContain("</script><script");
     expect(app.html).not.toMatch(/<script\s[^>]*\bsrc\s*=/i);
     expect(app.html).toContain("\\u003C/script\\u003E");
+  });
+
+  it("neutralizes spreadsheet formulas in generated CSV workflow metadata", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Formula-safe workflow",
+      workflow: {
+        inputs: ["=HYPERLINK(\"https://evil.test\",\"x\").csv", "safe.csv"],
+        manualStepsReplaced: ["copy rows into final workbook"],
+        transforms: [{ id: "copy-safe", description: "Copy rows deterministically", deterministic: true }],
+      },
+    });
+
+    const csv = runGeneratedWorkflowCsv(app.html);
+
+    expect(csv).toContain("required_input_files");
+    expect(csv).toContain("'=" + "HYPERLINK");
+    expect(csv).not.toContain("\n=HYPERLINK");
   });
 });
 

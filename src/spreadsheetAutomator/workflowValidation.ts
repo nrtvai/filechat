@@ -146,20 +146,29 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
       if (window.CSS && typeof window.CSS.escape === 'function') {
         return window.CSS.escape(value);
       }
-      return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      return String(value)
+        .replaceAll(String.fromCharCode(92), String.fromCharCode(92, 92))
+        .replace(/"/g, String.fromCharCode(92) + '"');
     }
 
     function runWorkflow() {
       const rows = [
-        ['output_file', 'transform_count', 'input_count'],
-        ['reconciliation-output.csv', String(workflow.transforms.length), String(workflow.inputs.length)]
+        ['output_file', 'required_input_files', 'transform_count', 'manual_step_count'],
+        [
+          'reconciliation-output.csv',
+          workflow.inputs.join('|'),
+          String(workflow.transforms.length),
+          String(workflow.manualStepsReplaced.length)
+        ]
       ];
       return rows.map(row => row.map(toCsvCell).join(',')).join('\\n') + '\\n';
     }
 
     function toCsvCell(value) {
       const text = String(value);
-      return /[",\\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+      const first = text.charAt(0);
+      const safeText = first === '=' || first === '+' || first === '-' || first === '@' || first.charCodeAt(0) === 9 || first.charCodeAt(0) === 13 ? "'" + text : text;
+      return /[",\\n]/.test(safeText) ? '"' + safeText.replace(/"/g, '""') + '"' : safeText;
     }
 
     function downloadFinalOutputCsv() {
