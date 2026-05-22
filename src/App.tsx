@@ -856,6 +856,9 @@ function Transcript(props: {
                 )}
                 {messageRun && <AgentActivity run={messageRun} compact />}
                 {message.role === "assistant" && message.citations.length > 0 && (
+                  <GroundedSourceNotice citations={message.citations} />
+                )}
+                {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
                 )}
                 {message.role === "assistant" && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
@@ -959,6 +962,26 @@ function sourceSummaryLabel(citations: Citation[]) {
   const visibleLabels = labels.slice(0, 2).join(", ");
   const remaining = labels.length - 2;
   return `Sources · ${citations.length} · ${visibleLabels}${remaining > 0 ? ` +${remaining} more` : ""}`;
+}
+
+function groundedSourceLabel(citations: Citation[]) {
+  const labels = Array.from(new Set(citations.map((citation) => citation.source_label).filter(Boolean)));
+  const sourceCount = labels.length || citations.length;
+  const snippetWord = citations.length === 1 ? "snippet" : "snippets";
+  const sourceWord = sourceCount === 1 ? "source" : "sources";
+  const visibleLabels = labels.slice(0, 2).join(", ");
+  const remaining = labels.length - 2;
+  const sourceSuffix = visibleLabels ? `: ${visibleLabels}${remaining > 0 ? ` +${remaining} more` : ""}` : "";
+  return `Grounded in ${citations.length} local source ${snippetWord}${sourceCount !== citations.length ? ` across ${sourceCount} ${sourceWord}` : ""}${sourceSuffix}`;
+}
+
+function GroundedSourceNotice({ citations }: { citations: Citation[] }) {
+  return (
+    <div className="source-strip grounded-source" role="status" aria-label="Grounded answer">
+      <strong>{groundedSourceLabel(citations)}</strong>
+      <small>Each cited snippet is from the attached local documents.</small>
+    </div>
+  );
 }
 
 function SourcesDisclosure({ citations, onCitationClick, minimized }: { citations: Citation[]; onCitationClick: (citation: Citation) => void; minimized: boolean }) {

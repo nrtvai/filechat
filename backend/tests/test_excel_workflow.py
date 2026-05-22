@@ -321,7 +321,7 @@ def test_builds_standalone_local_html_workflow_runtime_for_reconciliation():
     assert "URL.createObjectURL" in html
     assert "reconciliation-output.csv" in html
     assert "function finalOutputRows(workflow)" in html
-    assert "key,status,detail,source_refs" in html
+    assert "key,status,affected_tables,detail,source_refs" in html
     assert "value_difference" in html
     assert "missing_table" in html
     assert "matched" in html
@@ -573,7 +573,7 @@ const csv = finalOutputCsv({
     { fileName: 'actuals.csv', sheetName: 'actuals', columns: ['SKU', 'Qty'], sourceRows: [2], rows: [{ SKU: '=A1', Qty: '11' }] },
   ],
 });
-assert(csv.includes('key,status,detail,source_refs'));
+assert(csv.includes('key,status,affected_tables,detail,source_refs'));
 assert(csv.includes("'=A1"));
 assert(csv.includes('"10\\n20 at forecast.csv / forecast row 2; 11 at actuals.csv / actuals row 2"'));
 assert(!csv.includes('tfoo'));
@@ -767,6 +767,52 @@ assert.strictEqual(window.__WORKFLOW__.tables[0].rows[0].Qty, '-5');
 assert.strictEqual(window.__WORKFLOW__.tables[0].rows[0].Formula, '=SUM(1,2)');
 const downloadCsv = finalOutputCsv({ sharedKey: 'SKU', tables: [{ fileName: 'a.csv', sheetName: 'a', columns: ['SKU'], sourceRows: [2], rows: [{ SKU: '=A1' }] }] });
 assert(downloadCsv.includes("'=A1"));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
+def test_local_html_final_csv_includes_machine_readable_affected_tables_for_multi_file_rows():
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\nA1,12\nB2,20\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,11\nC3,30\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "key,status,affected_tables,detail,source_refs" in html
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-affected-tables.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} }
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+const csv = finalOutputCsv(window.__WORKFLOW__);
+assert(csv.includes('key,status,affected_tables,detail,source_refs'));
+assert(csv.includes(',duplicate_key,forecast.csv / forecast,"`A1` appears 2 times in forecast.csv / forecast rows 2, 3",'));
+assert(csv.includes('A1,value_difference,forecast.csv / forecast; actuals.csv / actuals,Qty differs,'));
+assert(csv.includes('B2,missing_table,actuals.csv / actuals,missing from actuals.csv / actuals,'));
+assert(csv.includes('C3,missing_table,forecast.csv / forecast,missing from forecast.csv / forecast,'));
+assert(!csv.includes(',duplicate_key,forecast.csv / forecast; actuals.csv / actuals,'));
 """,
             encoding="utf-8",
         )

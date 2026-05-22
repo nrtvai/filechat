@@ -287,9 +287,10 @@ function indexByKey(table, key) {{
   table.rows.forEach((row, i) => {{ const value = String(row[key] || '').trim(); if (value && !index.has(value)) index.set(value, {{row, index: i}}); }});
   return index;
 }}
-function duplicateKeyWarnings(tables, key) {{
-  const warnings = [];
+function duplicateKeyFindings(tables, key) {{
+  const findings = [];
   for (const table of tables) {{
+    const affectedTable = `${{table.fileName}} / ${{table.sheetName}}`;
     const rowsByKey = new Map();
     table.rows.forEach((row, i) => {{
       const value = String(row[key] || '').trim();
@@ -300,10 +301,13 @@ function duplicateKeyWarnings(tables, key) {{
     }});
     Array.from(rowsByKey.keys()).sort().forEach(value => {{
       const sourceRows = rowsByKey.get(value);
-      if (sourceRows.length > 1) warnings.push(`\\`${{value}}\\` appears ${{sourceRows.length}} times in ${{table.fileName}} / ${{table.sheetName}} rows ${{sourceRows.join(', ')}}`);
+      if (sourceRows.length > 1) findings.push({{ affected_tables: affectedTable, detail: `\\`${{value}}\\` appears ${{sourceRows.length}} times in ${{affectedTable}} rows ${{sourceRows.join(', ')}}` }});
     }});
   }}
-  return warnings;
+  return findings;
+}}
+function duplicateKeyWarnings(tables, key) {{
+  return duplicateKeyFindings(tables, key).map(finding => finding.detail);
 }}
 function compareWorkflow(workflow) {{
   const key = workflow.sharedKey;
@@ -340,17 +344,17 @@ function compareWorkflow(workflow) {{
 }}
 function finalOutputRows(workflow) {{
   const key = workflow.sharedKey;
-  if (!key) return [{{key: '', status: 'schema_only', detail: workflow.answer || 'No shared key was detected.', source_refs: ''}}];
+  if (!key) return [{{key: '', status: 'schema_only', affected_tables: workflow.tables.map(t => `${{t.fileName}} / ${{t.sheetName}}`).join('; '), detail: workflow.answer || 'No shared key was detected.', source_refs: ''}}];
   const indexes = workflow.tables.map(table => indexByKey(table, key));
   const keys = Array.from(new Set(indexes.flatMap(index => Array.from(index.keys())))).sort();
   const rows = [];
-  for (const warning of duplicateKeyWarnings(workflow.tables, key)) rows.push({{key: '', status: 'duplicate_key', detail: warning, source_refs: ''}});
+  for (const finding of duplicateKeyFindings(workflow.tables, key)) rows.push({{key: '', status: 'duplicate_key', affected_tables: finding.affected_tables, detail: finding.detail, source_refs: ''}});
   for (const value of keys) {{
     const present = workflow.tables.map((table, i) => [table, indexes[i].get(value)]).filter(([, hit]) => hit);
     if (present.length !== workflow.tables.length) {{
       const missing = workflow.tables.filter((_, i) => !indexes[i].has(value)).map(t => `${{t.fileName}} / ${{t.sheetName}}`).join('; ');
       const sourceRefs = present.map(([table, hit]) => rowRef(table, hit.index)).join('; ');
-      rows.push({{key: value, status: 'missing_table', detail: `missing from ${{missing}}`, source_refs: sourceRefs}});
+      rows.push({{key: value, status: 'missing_table', affected_tables: missing, detail: `missing from ${{missing}}`, source_refs: sourceRefs}});
       continue;
     }}
     const common = workflow.tables[0].columns.filter(column => column !== key && workflow.tables.every(table => table.columns.includes(column)));
@@ -359,12 +363,12 @@ function finalOutputRows(workflow) {{
       const values = present.map(([table, hit]) => [table, String(hit.row[column] || '').trim(), hit.index]);
       if (new Set(values.map(([, cell]) => cell)).size > 1) {{
         hasDifference = true;
-        rows.push({{key: value, status: 'value_difference', detail: `${{column}} differs`, source_refs: values.map(([table, cell, rowIndex]) => `${{cell || '(blank)'}} at ${{rowRef(table, rowIndex)}}`).join('; ')}});
+        rows.push({{key: value, status: 'value_difference', affected_tables: values.map(([table]) => `${{table.fileName}} / ${{table.sheetName}}`).join('; '), detail: `${{column}} differs`, source_refs: values.map(([table, cell, rowIndex]) => `${{cell || '(blank)'}} at ${{rowRef(table, rowIndex)}}`).join('; ')}});
       }}
     }}
-    if (!hasDifference) rows.push({{key: value, status: 'matched', detail: 'all shared columns match', source_refs: present.map(([table, hit]) => rowRef(table, hit.index)).join('; ')}});
+    if (!hasDifference) rows.push({{key: value, status: 'matched', affected_tables: present.map(([table]) => `${{table.fileName}} / ${{table.sheetName}}`).join('; '), detail: 'all shared columns match', source_refs: present.map(([table, hit]) => rowRef(table, hit.index)).join('; ')}});
   }}
-  if (!rows.length) rows.push({{key: '', status: 'matched', detail: 'No key presence or shared-column value differences were found in the parsed rows.', source_refs: ''}});
+  if (!rows.length) rows.push({{key: '', status: 'matched', affected_tables: '', detail: 'No key presence or shared-column value differences were found in the parsed rows.', source_refs: ''}});
   return rows;
 }}
 function csvCell(value) {{
@@ -443,8 +447,8 @@ function tableToCsv(table) {{
   return lines.join('\\n') + '\\n';
 }}
 function finalOutputCsv(workflow) {{
-  const lines = ['key,status,detail,source_refs'];
-  finalOutputRows(workflow).forEach(row => {{ lines.push([row.key, row.status, row.detail, row.source_refs].map(csvCell).join(',')); }});
+  const lines = ['key,status,affected_tables,detail,source_refs'];
+  finalOutputRows(workflow).forEach(row => {{ lines.push([row.key, row.status, row.affected_tables, row.detail, row.source_refs].map(csvCell).join(',')); }});
   return lines.join('\\r\\n') + '\\r\\n';
 }}
 function downloadFinalOutputCsv() {{

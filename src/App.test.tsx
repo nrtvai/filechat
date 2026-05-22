@@ -537,6 +537,30 @@ describe("App", () => {
     expect(summary).toBeVisible();
   });
 
+  it("labels cited assistant answers as grounded in local source snippets", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites local snippets.");
+    answer.citations = [citation("cit_1")];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Grounded in 1 local source snippet: report.txt")).toBeVisible();
+    expect(screen.queryByText("Agent Setup")).not.toBeInTheDocument();
+  });
+
   it("names unavailable source files even when the answer has citations", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer cites one local snippet.");
     answer.citations = [citation("cit_1")];
