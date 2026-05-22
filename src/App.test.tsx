@@ -320,6 +320,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close right panel" }));
     fireEvent.click(screen.getByRole("button", { name: "Sources" }));
     expect(await screen.findByText("No citations yet.")).toBeVisible();
+    expect(screen.getByText("Cited source snippets will appear here after grounded answers; if no local source supports an answer, FileChat will say so.")).toBeVisible();
   });
 
   it("filters the left-rail session list by title", async () => {

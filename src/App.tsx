@@ -1254,7 +1254,12 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function CitationsTab({ citations, highlightCitationId }: { citations: Citation[]; highlightCitationId: string | null }) {
   if (citations.length === 0) {
-    return <div className="panel-empty">No citations yet.</div>;
+    return (
+      <div className="panel-empty">
+        <strong>No citations yet.</strong>
+        <p>Cited source snippets will appear here after grounded answers; if no local source supports an answer, FileChat will say so.</p>
+      </div>
+    );
   }
   return (
     <div className="panel-body">
