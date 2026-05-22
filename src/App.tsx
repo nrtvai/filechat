@@ -1101,7 +1101,9 @@ function Composer(props: {
       ].filter(Boolean).join(" · ")
     : failed > 0
       ? "No ready sources · fix failed files before sending"
-      : "No ready sources yet · you can draft while files process";
+      : props.files.length === 0
+        ? "Attach a file to ask grounded questions · drafts stay local until a source is ready"
+        : "No ready sources yet · you can draft while files process";
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Some older WebKit IME paths report keyCode 229 instead of reliably setting isComposing.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;

@@ -357,7 +357,24 @@ describe("validateLocalHtmlWorkflowApp", () => {
       "workflow.outputs must include the deterministic reconciliation-output.csv final output",
       "html must include a local final output CSV download action implemented with a browser Blob and deterministic filename",
       "html must validate every required workflow input file before allowing the final output download",
+      "workflow must describe reconstructed spreadsheet automation, not generic spreadsheet Q&A",
     ]);
+  });
+
+  it("rejects generic spreadsheet Q&A labels even when the artifact has file inputs and deterministic output plumbing", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Spreadsheet Q&A assistant",
+      workflow: {
+        inputs: ["orders.csv"],
+        manualStepsReplaced: ["copy rows into the final spreadsheet"],
+        transforms: [{ id: "answer-questions", description: "Answer questions about uploaded spreadsheet rows", deterministic: true }],
+      },
+    });
+
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({
+      ok: false,
+      errors: ["workflow must describe reconstructed spreadsheet automation, not generic spreadsheet Q&A"],
+    });
   });
 
   it("rejects local HTML apps that only display a report without a final output download", () => {

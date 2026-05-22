@@ -87,6 +87,10 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
     errors.push("html must validate every required workflow input file before allowing the final output download");
   }
 
+  if (describesGenericSpreadsheetQa(app)) {
+    errors.push("workflow must describe reconstructed spreadsheet automation, not generic spreadsheet Q&A");
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -386,6 +390,17 @@ function hasConcreteSpreadsheetStep(steps: string[]) {
     return actionWords.some((word) => contains(normalized, word))
       && spreadsheetWords.some((word) => contains(normalized, word));
   });
+}
+
+function describesGenericSpreadsheetQa(app: LocalHtmlWorkflowApp) {
+  const workflowLabels = app.workflow.transforms
+    .reduce<string[]>((labels, transform) => labels.concat(transform.id, transform.description), [app.title])
+    .join("\n")
+    .toLowerCase();
+
+  return /\b(?:spreadsheet\s+)?q\s*&\s*a\b/.test(workflowLabels)
+    || /\bask\s+(?:questions?|anything)\b/.test(workflowLabels)
+    || /\banswer\s+(?:user\s+)?questions?\b/.test(workflowLabels);
 }
 
 function hasLocalRunInstruction(instruction: string, platformWords: string[]) {

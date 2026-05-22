@@ -476,7 +476,7 @@ describe("App", () => {
     expect(await screen.findByText("Attach files")).toBeInTheDocument();
     const input = await screen.findByLabelText("Ask a question about the selected files");
     expect(input).toBeVisible();
-    expect(screen.getByText("No ready sources yet · you can draft while files process")).toBeVisible();
+    expect(screen.getByText("Attach a file to ask grounded questions · drafts stay local until a source is ready")).toBeVisible();
 
     fireEvent.change(input, { target: { value: "I can draft before attaching" } });
     fireEvent.keyDown(input, { key: "Enter", metaKey: true });

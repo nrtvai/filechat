@@ -15,7 +15,7 @@ test("chat-first cold start keeps draft through file attach and sends after inde
   const composer = page.getByLabel("Ask a question about the selected files");
   await expect(composer).toBeVisible();
   await expect(composer).toBeEnabled();
-  await expect(page.getByText("No ready sources yet · you can draft while files process")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Attach a file to ask grounded questions · drafts stay local until a source is ready")).toBeVisible({ timeout: 15_000 });
 
   const draft = "Make a chart about the survey result";
   await composer.fill(draft);
