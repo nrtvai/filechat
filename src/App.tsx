@@ -831,7 +831,7 @@ function Transcript(props: {
             <article key={message.id} className={`turn ${message.role}`}>
               <div className="turn-label mono caps">{message.role === "user" ? "You" : "FileChat"}</div>
               <div className="bubble">
-                {message.role === "assistant" && !message.content.trim() ? <NoAnswerNotice grounding={message.grounding} /> : <RenderedMessage content={message.content} />}
+                {message.role === "assistant" && !message.content.trim() ? <NoAnswerNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} /> : <RenderedMessage content={message.content} />}
                 <MessageCost message={message} />
                 {message.role === "assistant" && visibleArtifacts(message, props.contextProfile).length > 0 && (
                   <div className="artifact-list">
@@ -901,20 +901,28 @@ function visibleArtifacts(message: Message, profile: ContextProfile) {
   return message.artifacts.filter((artifact) => (artifact.display_mode ?? "primary") === "primary");
 }
 
-function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
+function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngroundedWarning = false }: { unavailableFileIds?: string[]; files?: FileRecord[]; includeUngroundedWarning?: boolean }) {
   const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
   const readyLabels = files.filter((file) => file.status === "ready").map((file) => file.name);
   const failedLabels = files
     .filter((file) => file.status === "failed")
     .map((file) => file.error ? `${file.name} (${fileErrorSummary(file)})` : file.name);
   return (
-    <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="No citations attached">
-      <strong>{grounding?.notice?.trim() || "No citations attached to this answer."}</strong>
-      <small>{grounding?.detail?.trim() || "FileChat is being explicit that this response has no retrieved source snippets."}</small>
-      {readyLabels.length > 0 && <small>Treat this answer as ungrounded until a cited snippet supports it.</small>}
+    <>
+      {includeUngroundedWarning && readyLabels.length > 0 && <small>Treat this answer as ungrounded until a cited snippet supports it.</small>}
       {readyLabels.length > 0 && <small>Available source context: {readyLabels.join(", ")}</small>}
       {failedLabels.length > 0 && <small>Failed source context: {failedLabels.join(", ")}</small>}
       {unavailableLabels.length > 0 && <small>Unavailable sources: {unavailableLabels.join(", ")}</small>}
+    </>
+  );
+}
+
+function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
+  return (
+    <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="No citations attached">
+      <strong>{grounding?.notice?.trim() || "No citations attached to this answer."}</strong>
+      <small>{grounding?.detail?.trim() || "FileChat is being explicit that this response has no retrieved source snippets."}</small>
+      <SourceContextDetails unavailableFileIds={unavailableFileIds} files={files} includeUngroundedWarning />
     </div>
   );
 }
@@ -930,13 +938,14 @@ function UnavailableSourceNotice({ unavailableFileIds = [], files = [] }: { unav
   );
 }
 
-function NoAnswerNotice({ grounding }: { grounding?: Message["grounding"] }) {
+function NoAnswerNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
   const notice = grounding?.notice?.trim() || "No answer was generated.";
   const detail = grounding?.detail?.trim() || "FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.";
   return (
     <div className="source-strip no-citations no-answer" role="status" aria-live="polite" aria-label="No answer generated">
       <strong>{notice}</strong>
       <small>{detail}</small>
+      <SourceContextDetails unavailableFileIds={unavailableFileIds} files={files} />
     </div>
   );
 }

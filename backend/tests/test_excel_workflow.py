@@ -5,7 +5,22 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from backend.app.excel_workflow import build_excel_workflow_answer, build_excel_workflow_html_app
+from backend.app.excel_workflow import (
+    build_excel_workflow_answer,
+    build_excel_workflow_html_app,
+    is_excel_workflow_request,
+)
+
+
+def test_copy_paste_automation_request_routes_to_spreadsheet_workflow_lane():
+    assert is_excel_workflow_request(
+        "I copy/paste rows between these spreadsheets every week; automate the manual edits into a local HTML app."
+    )
+
+
+def test_generic_automation_words_do_not_route_to_spreadsheet_workflow_lane():
+    assert not is_excel_workflow_request("Can you automate the summary of these files?")
+    assert not is_excel_workflow_request("Build a local app for my notes")
 
 
 def test_reconcile_uses_actual_preview_source_rows_for_gapped_xlsx_summary():

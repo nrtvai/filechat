@@ -23,6 +23,14 @@ WORKFLOW_TERMS = (
     "workbook",
     "spreadsheet workflow",
     "excel mode",
+    "copy/paste",
+    "copy paste",
+    "manual edits",
+    "local html app",
+    "spreadsheet automation",
+    "automate the manual",
+    "automate my spreadsheet",
+    "automate these spreadsheets",
 )
 
 KEY_HINTS = ("sku", "id", "item", "product", "account", "customer", "order", "name")

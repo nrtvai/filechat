@@ -648,21 +648,25 @@ describe("App", () => {
     expect(screen.queryByText("No source needed for this response.")).not.toBeInTheDocument();
   });
 
-  it("shows backend grounding detail in the honest no-answer state when an assistant message is blank", async () => {
+  it("shows backend grounding detail and source context in the honest no-answer state when an assistant message is blank", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
     answer.grounding = {
       status: "no_citations",
       notice: "No sourced answer could be generated.",
       detail: "The retrieved local snippets did not support an answer."
     };
+    answer.unavailable_file_ids = ["fil_notes"];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/me")) return Response.json(currentUser);
       if (url.endsWith("/api/settings")) return Response.json(settings);
       if (url.endsWith("/api/context/profile")) return Response.json({});
-      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
-      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
-      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 2));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 2)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_report", "report.txt"),
+        file("fil_notes", "notes.pdf", "failed", "OCR failed")
+      ]);
       if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
       if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
       if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
@@ -674,6 +678,9 @@ describe("App", () => {
 
     expect(await screen.findByText("No sourced answer could be generated.")).toBeVisible();
     expect(screen.getByText("The retrieved local snippets did not support an answer.")).toBeVisible();
+    expect(screen.getByText("Available source context: report.txt")).toBeVisible();
+    expect(screen.getByText("Failed source context: notes.pdf (OCR failed)")).toBeVisible();
+    expect(screen.getByText("Unavailable sources: notes.pdf")).toBeVisible();
     expect(screen.queryByText("No answer was generated.")).not.toBeInTheDocument();
     expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
   });
