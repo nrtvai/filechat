@@ -276,8 +276,8 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
       <li>reconciliation-output.csv</li>
     </ul>
   </section>
-  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="download">Download final output CSV</button></section>
-  <section><h2>Parsed worksheet data</h2><div id="tables" class="grid"></div></section>
+  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="import-csv">Import pasted CSV rows</button> <button id="download">Download final output CSV</button></section>
+  <section><h2>Parsed worksheet data</h2><p>Paste updated CSV for any input table, import it, then re-run the local reconciliation before downloading the final output.</p><div id="tables" class="grid"></div></section>
 </main>
 <script>
 window.__WORKFLOW__ = {payload};
@@ -373,6 +373,75 @@ function csvCell(value) {{
   if (first === '=' || first === '+' || first === '-' || first === '@' || first.charCodeAt(0) === 9 || first.charCodeAt(0) === 13) text = "'" + text;
   return text.includes('"') || text.includes(',') || text.includes(String.fromCharCode(13)) || text.includes(String.fromCharCode(10)) ? '"' + text.replace(/"/g, '""') + '"' : text;
 }}
+function editableCsvCell(value) {{
+  const text = String(value == null ? '' : value);
+  return text.includes('"') || text.includes(',') || text.includes(String.fromCharCode(13)) || text.includes(String.fromCharCode(10)) ? '"' + text.replace(/"/g, '""') + '"' : text;
+}}
+function parseCsvText(text) {{
+  const parsedRows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  let lineNumber = 1;
+  let rowStartLine = 1;
+  const finishRow = () => {{
+    row.push(cell.trim());
+    if (row.some(value => value !== '')) parsedRows.push({{ cells: row, sourceRow: rowStartLine }});
+    row = [];
+    cell = '';
+    rowStartLine = lineNumber + 1;
+  }};
+  for (let i = 0; i < text.length; i += 1) {{
+    const char = text[i];
+    if (quoted) {{
+      if (char === '"' && text[i + 1] === '"') {{ cell += '"'; i += 1; continue; }}
+      if (char === '"') {{ quoted = false; continue; }}
+      if (char === String.fromCharCode(10) || char === String.fromCharCode(13)) {{
+        cell += char;
+        if (char === String.fromCharCode(13) && text[i + 1] === String.fromCharCode(10)) {{ cell += text[i + 1]; i += 1; }}
+        lineNumber += 1;
+        continue;
+      }}
+      cell += char;
+      continue;
+    }}
+    if (char === '"') {{ quoted = true; continue; }}
+    if (char === ',') {{ row.push(cell.trim()); cell = ''; continue; }}
+    if (char === String.fromCharCode(10) || char === String.fromCharCode(13)) {{
+      if (char === String.fromCharCode(13) && text[i + 1] === String.fromCharCode(10)) i += 1;
+      finishRow();
+      lineNumber += 1;
+      rowStartLine = lineNumber;
+      continue;
+    }}
+    cell += char;
+  }}
+  finishRow();
+  const header = parsedRows.shift() || {{ cells: [], sourceRow: 1 }};
+  const columns = header.cells.map(column => String(column || '').trim());
+  const recordsWithSourceRows = parsedRows.map(parsed => {{
+    const record = {{}};
+    columns.forEach((column, index) => {{ record[column] = String(parsed.cells[index] == null ? '' : parsed.cells[index]).trim(); }});
+    return {{ record, sourceRow: parsed.sourceRow }};
+  }}).filter(item => Object.values(item.record).some(value => value !== ''));
+  return {{ columns, rows: recordsWithSourceRows.map(item => item.record), sourceRows: recordsWithSourceRows.map(item => item.sourceRow) }};
+}}
+function replaceTableFromCsv(workflow, tableIndex, csvText) {{
+  const parsed = parseCsvText(csvText);
+  const table = workflow.tables[tableIndex];
+  if (!table) throw new Error(`No workflow table at index ${{tableIndex}}`);
+  if (workflow.sharedKey && !parsed.columns.includes(workflow.sharedKey)) throw new Error(`Imported CSV for ${{table.fileName}} / ${{table.sheetName}} must include shared key column "${{workflow.sharedKey}}". Keep the key column header unchanged so rows can be reconciled.`);
+  table.columns = parsed.columns;
+  table.rows = parsed.rows;
+  table.sourceRows = parsed.sourceRows;
+  return table;
+}}
+function tableToCsv(table) {{
+  const columns = table.columns || [];
+  const lines = [columns.map(editableCsvCell).join(',')];
+  (table.rows || []).forEach(row => {{ lines.push(columns.map(column => editableCsvCell(row[column])).join(',')); }});
+  return lines.join('\\n') + '\\n';
+}}
 function finalOutputCsv(workflow) {{
   const lines = ['key,status,detail,source_refs'];
   finalOutputRows(workflow).forEach(row => {{ lines.push([row.key, row.status, row.detail, row.source_refs].map(csvCell).join(',')); }});
@@ -400,16 +469,36 @@ function render() {{
     const article = document.createElement('article');
     const heading = document.createElement('h3');
     const area = document.createElement('textarea');
+    const csvHeading = document.createElement('h4');
+    const csvArea = document.createElement('textarea');
     heading.textContent = `${{table.fileName}} / ${{table.sheetName}}`;
     area.dataset.table = String(i);
     area.value = JSON.stringify(table.rows, null, 2);
-    article.append(heading, area);
+    csvHeading.textContent = 'Paste updated CSV for this input table';
+    csvArea.dataset.csvTable = String(i);
+    csvArea.value = tableToCsv(table);
+    csvArea.dataset.originalCsv = csvArea.value;
+    article.append(heading, area, csvHeading, csvArea);
     container.append(article);
   }});
 }}
 document.getElementById('run').addEventListener('click', () => {{
   document.querySelectorAll('textarea[data-table]').forEach(area => {{ window.__WORKFLOW__.tables[Number(area.dataset.table)].rows = JSON.parse(area.value); }});
   document.getElementById('report').textContent = compareWorkflow(window.__WORKFLOW__);
+}});
+document.getElementById('import-csv').addEventListener('click', () => {{
+  const errors = [];
+  document.querySelectorAll('textarea[data-csv-table]').forEach(area => {{
+    if (!area.value.trim()) return;
+    if (area.value === area.dataset.originalCsv) return;
+    try {{
+      replaceTableFromCsv(window.__WORKFLOW__, Number(area.dataset.csvTable), area.value);
+    }} catch (error) {{
+      errors.push(error && error.message ? error.message : String(error));
+    }}
+  }});
+  render();
+  if (errors.length) document.getElementById('report').textContent = 'CSV import failed:\\n' + errors.map(error => `- ${{error}}`).join('\\n') + '\\n\\n' + document.getElementById('report').textContent;
 }});
 document.getElementById('download').addEventListener('click', downloadFinalOutputCsv);
 render();

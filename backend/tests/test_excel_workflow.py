@@ -631,3 +631,320 @@ def test_local_html_runtime_reports_duplicate_keys_and_escapes_script_end_tags()
     assert "Duplicate key values found:" in html
     assert "</script>.csv" not in html
     assert "forecast<\\/script>.csv" in html
+
+
+def test_local_html_runtime_can_replace_embedded_table_from_pasted_csv():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "Paste updated CSV for any input table" in html
+    assert "Import pasted CSV rows" in html
+    assert "function parseCsvText" in html
+    assert "function replaceTableFromCsv" in html
+    assert "textarea[data-csv-table]" in html
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-csv-import.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+replaceTableFromCsv(window.__WORKFLOW__, 1, 'SKU,Qty\\nA1,12\\nB2,7\\n');
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].columns, ['SKU', 'Qty']);
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].sourceRows, [2, 3]);
+assert.strictEqual(window.__WORKFLOW__.tables[1].rows[0].Qty, '12');
+assert(compareWorkflow(window.__WORKFLOW__).includes('A1` differs'));
+assert(finalOutputCsv(window.__WORKFLOW__).includes('B2,missing_table'));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
+def test_local_html_editable_csv_roundtrip_preserves_formula_and_negative_values():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 1\n"
+        "Columns: 3\n"
+        "Headers: SKU, Qty, Formula\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty,Formula\n"
+        'A1,-5,"=SUM(1,2)"\n'
+        "```\n"
+    )
+    actuals_summary = forecast_summary.replace("forecast.csv", "actuals.csv").replace("## Worksheet: forecast", "## Worksheet: actuals")
+
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-editable-csv.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+const editableCsv = tableToCsv({ columns: ['SKU', 'Qty', 'Formula'], rows: [{ SKU: 'A1', Qty: '-5', Formula: '=SUM(1,2)' }] });
+assert(editableCsv.includes('A1,-5,"=SUM(1,2)"'));
+assert(!editableCsv.includes("'-5"));
+assert(!editableCsv.includes("'=SUM"));
+replaceTableFromCsv(window.__WORKFLOW__, 0, editableCsv);
+assert.strictEqual(window.__WORKFLOW__.tables[0].rows[0].Qty, '-5');
+assert.strictEqual(window.__WORKFLOW__.tables[0].rows[0].Formula, '=SUM(1,2)');
+const downloadCsv = finalOutputCsv({ sharedKey: 'SKU', tables: [{ fileName: 'a.csv', sheetName: 'a', columns: ['SKU'], sourceRows: [2], rows: [{ SKU: '=A1' }] }] });
+assert(downloadCsv.includes("'=A1"));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
+def test_local_html_csv_import_preserves_physical_source_rows_after_blank_lines():
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\nB2,20\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,10\nB2,20\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-blank-lines.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+replaceTableFromCsv(window.__WORKFLOW__, 1, 'SKU,Qty\\nA1,10\\n\\nB2,25\\n');
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].sourceRows, [2, 4]);
+assert(compareWorkflow(window.__WORKFLOW__).includes('25 at actuals.csv / actuals row 4'));
+assert(!compareWorkflow(window.__WORKFLOW__).includes('25 at actuals.csv / actuals row 3'));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
+def test_local_html_csv_import_missing_shared_key_fails_without_replacing_table():
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,10\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-missing-key.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+const beforeRows = JSON.stringify(window.__WORKFLOW__.tables[1].rows);
+assert.throws(
+  () => replaceTableFromCsv(window.__WORKFLOW__, 1, 'Item,Qty\\nA1,99\\n'),
+  /must include shared key column "SKU"/
+);
+assert.strictEqual(JSON.stringify(window.__WORKFLOW__.tables[1].rows), beforeRows);
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].columns, ['SKU', 'Qty']);
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
+def test_local_html_csv_import_skips_unchanged_prepopulated_tables_to_preserve_source_rows():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.xlsx\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: Forecast\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "Preview (source rows 3, 5):\n"
+        "| SKU | Qty |\n"
+        "| --- | --- |\n"
+        "| A1 | 10 |\n"
+        "| B2 | 20 |\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "B2,25\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.xlsx", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-skip-unchanged-csv.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+const elements = new Map();
+const csvAreas = [];
+const handlers = {};
+function element(id) {
+  return {
+    id,
+    textContent: '',
+    value: '',
+    dataset: {},
+    append(...children) { children.forEach(child => { if (child.dataset && child.dataset.csvTable != null) csvAreas.push(child); }); },
+    addEventListener(event, handler) { handlers[id + ':' + event] = handler; },
+    click() {},
+    remove() {},
+  };
+}
+global.window = {};
+global.document = {
+  getElementById(id) { if (!elements.has(id)) elements.set(id, element(id)); return elements.get(id); },
+  querySelectorAll(selector) { return selector === 'textarea[data-csv-table]' ? csvAreas : []; },
+  createElement(tag) { return element(tag); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+assert.deepStrictEqual(window.__WORKFLOW__.tables[0].sourceRows, [3, 5]);
+assert.strictEqual(csvAreas.length, 2);
+assert.strictEqual(csvAreas[0].value, csvAreas[0].dataset.originalCsv);
+handlers['import-csv:click']();
+assert.deepStrictEqual(window.__WORKFLOW__.tables[0].sourceRows, [3, 5]);
+assert(compareWorkflow(window.__WORKFLOW__).includes('20 at forecast.xlsx / Forecast row 5'));
+assert(!compareWorkflow(window.__WORKFLOW__).includes('20 at forecast.xlsx / Forecast row 3'));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
