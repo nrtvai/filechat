@@ -618,6 +618,30 @@ describe("App", () => {
     expect(screen.getByText("Ask again after adding relevant local documents.")).toBeVisible();
   });
 
+  it("shows an honest no-source state when an uncited assistant answer has no local files", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer arrived without attached document context.");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("This answer arrived without attached document context.")).toBeVisible();
+    expect(screen.getByText("No local sources were available for this answer.")).toBeVisible();
+    expect(screen.getByText("Attach local documents before relying on FileChat for grounded document answers.")).toBeVisible();
+  });
+
   it("does not warn about missing citations when the backend marks grounding as not applicable", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "Hi! Ask me about the attached report when you're ready.");
     answer.grounding = {

@@ -861,7 +861,7 @@ function Transcript(props: {
                 {message.role === "assistant" && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
                   <UnavailableSourceNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
                 )}
-                {message.role === "assistant" && message.content.trim() && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
+                {message.role === "assistant" && message.content.trim() && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.length === 0 || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
                   <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} />
                 )}
               </div>
@@ -907,9 +907,11 @@ function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngr
   const failedLabels = files
     .filter((file) => file.status === "failed")
     .map((file) => file.error ? `${file.name} (${fileErrorSummary(file)})` : file.name);
+  const hasNoLocalSourceContext = files.length === 0 && unavailableLabels.length === 0;
   return (
     <>
       {includeUngroundedWarning && readyLabels.length > 0 && <small>Treat this answer as ungrounded until a cited snippet supports it.</small>}
+      {includeUngroundedWarning && hasNoLocalSourceContext && <small>Attach local documents before relying on FileChat for grounded document answers.</small>}
       {readyLabels.length > 0 && <small>Available source context: {readyLabels.join(", ")}</small>}
       {failedLabels.length > 0 && <small>Failed source context: {failedLabels.join(", ")}</small>}
       {unavailableLabels.length > 0 && <small>Unavailable sources: {unavailableLabels.join(", ")}</small>}
@@ -918,9 +920,10 @@ function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngr
 }
 
 function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
+  const hasNoLocalSourceContext = files.length === 0 && unavailableFileIds.length === 0;
   return (
     <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="No citations attached">
-      <strong>{grounding?.notice?.trim() || "No citations attached to this answer."}</strong>
+      <strong>{grounding?.notice?.trim() || (hasNoLocalSourceContext ? "No local sources were available for this answer." : "No citations attached to this answer.")}</strong>
       <small>{grounding?.detail?.trim() || "FileChat is being explicit that this response has no retrieved source snippets."}</small>
       <SourceContextDetails unavailableFileIds={unavailableFileIds} files={files} includeUngroundedWarning />
     </div>

@@ -153,6 +153,35 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     key = _shared_key(tables)
     answer = build_excel_workflow_answer(question, file_texts, sources)
     mode = "reconcile" if key else "schema_only"
+    run_instructions = [
+        "Save this generated .html file somewhere you control, such as Desktop or Documents.",
+        "Mac: double-click the file in Finder, or right-click and choose Open With > your browser.",
+        "Windows: double-click the file in File Explorer, or right-click and choose Open with > your browser.",
+        "Open this generated .html file directly from disk. The workflow data and reconciliation logic are embedded for local use.",
+    ]
+    outputs = ["On-screen workflow report", "reconciliation-output.csv"]
+    if key:
+        manual_steps_replaced = [
+            "Paste rows from each spreadsheet into one comparison sheet",
+            "Manually scan for value differences on the shared key",
+            "Edit or filter comparison rows by hand before exporting results",
+        ]
+        transforms = [
+            f"Normalize and match rows by shared key {key}",
+            "Compare shared non-key columns with embedded local JavaScript",
+            "Generate value_difference, missing_table, duplicate_key, and matched statuses",
+        ]
+    else:
+        manual_steps_replaced = [
+            "Collect row counts and headers from each workbook by hand",
+            "Compare worksheet schemas manually when no shared key is available",
+            "Copy the schema-only summary into the final workflow output",
+        ]
+        transforms = [
+            "Display the precomputed schema-only comparison for the uploaded tables",
+            "Generate a schema_only CSV summary row with embedded local JavaScript",
+            "Preserve each input table so the workflow can be edited and inspected locally",
+        ]
     manifest = {
         "title": "Spreadsheet Workflow Automator",
         "question": question,
@@ -160,6 +189,10 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         "sharedKey": key,
         "tableCount": len(tables),
         "answer": answer["answer"] if answer else "",
+        "runInstructions": run_instructions,
+        "manualStepsReplaced": manual_steps_replaced,
+        "transforms": transforms,
+        "outputs": outputs,
         "tables": [
             {
                 "fileName": table.file_name,
@@ -182,28 +215,8 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         + "</li>"
         for table in tables
     )
-    if key:
-        manual_step_items_html = "\n".join([
-            "      <li>Paste rows from each spreadsheet into one comparison sheet</li>",
-            "      <li>Manually scan for value differences on the shared key</li>",
-            "      <li>Edit or filter comparison rows by hand before exporting results</li>",
-        ])
-        transform_items_html = "\n".join([
-            f"      <li>Normalize and match rows by shared key {html_lib.escape(key)}</li>",
-            "      <li>Compare shared non-key columns with embedded local JavaScript</li>",
-            "      <li>Generate value_difference, missing_table, duplicate_key, and matched statuses</li>",
-        ])
-    else:
-        manual_step_items_html = "\n".join([
-            "      <li>Collect row counts and headers from each workbook by hand</li>",
-            "      <li>Compare worksheet schemas manually when no shared key is available</li>",
-            "      <li>Copy the schema-only summary into the final workflow output</li>",
-        ])
-        transform_items_html = "\n".join([
-            "      <li>Display the precomputed schema-only comparison for the uploaded tables</li>",
-            "      <li>Generate a schema_only CSV summary row with embedded local JavaScript</li>",
-            "      <li>Preserve each input table so the workflow can be edited and inspected locally</li>",
-        ])
+    manual_step_items_html = "\n".join(f"      <li>{html_lib.escape(step)}</li>" for step in manual_steps_replaced)
+    transform_items_html = "\n".join(f"      <li>{html_lib.escape(transform)}</li>" for transform in transforms)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -376,8 +389,12 @@ function downloadFinalOutputCsv() {{
 }}
 function render() {{
   const workflow = window.__WORKFLOW__;
+  const steps = workflow.manualStepsReplaced || [];
+  const transforms = workflow.transforms || [];
   document.getElementById('report').textContent = compareWorkflow(workflow);
   const container = document.getElementById('tables');
+  container.dataset.manualSteps = String(steps.length);
+  container.dataset.transforms = String(transforms.length);
   container.textContent = '';
   workflow.tables.forEach((table, i) => {{
     const article = document.createElement('article');

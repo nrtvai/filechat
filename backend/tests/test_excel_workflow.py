@@ -402,6 +402,56 @@ def test_local_html_app_shows_local_run_instructions_and_workflow_manifest():
     assert "https://" not in html
 
 
+def test_local_html_manifest_embeds_workflow_contract_for_generated_app_runtime():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "B2,20\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 2\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "B2,25\n"
+        "```\n"
+    )
+
+    html = build_excel_workflow_html_app(
+        "turn my weekly spreadsheet copy/paste/edit reconciliation into a local HTML app",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert '"manualStepsReplaced":["Paste rows from each spreadsheet into one comparison sheet"' in html
+    assert '"transforms":["Normalize and match rows by shared key SKU"' in html
+    assert '"outputs":["On-screen workflow report","reconciliation-output.csv"]' in html
+    assert '"runInstructions":["Save this generated .html file somewhere you control, such as Desktop or Documents."' in html
+    assert "const steps = workflow.manualStepsReplaced || [];" in html
+    assert "const transforms = workflow.transforms || [];" in html
+
+
 def test_schema_only_local_html_workflow_contract_does_not_claim_key_matching():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"
