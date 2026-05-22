@@ -57,6 +57,9 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).toContain("a.download = 'reconciliation-output.csv'");
     expect(app.html).toContain("function buildFinalOutputCsv(inputFileTexts)");
     expect(app.html).toContain("'input_file', 'row_count', 'column_count', 'character_count', 'content_checksum'");
+    expect(app.html).toContain('<script type="application/json" id="workflow-contract">');
+    expect(app.html).toContain('<h2>Reconstructed workflow contract</h2>');
+    expect(app.html).toContain('"manualStepsReplaced":["copy weekly sales rows into the reorder sheet","edit reorder quantity column by SKU"]');
     expect(app.html).toContain("await file.text()");
     expect(app.html).toContain("String(workflow.manualStepsReplaced.length)");
     expect(app.html).not.toMatch(/<script\s[^>]*\bsrc\s*=/i);

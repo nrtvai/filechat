@@ -107,6 +107,7 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
     .map((transform) => `<li><strong>${escapeHtml(transform.id)}</strong>: ${escapeHtml(transform.description)}</li>`)
     .join("");
   const workflowJson = serializeJsonForInlineScript(workflow);
+  const workflowContractHtml = escapeHtml(JSON.stringify(workflow, null, 2));
 
   return `<!doctype html>
 <html lang="en">
@@ -133,6 +134,10 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   <ol>${transformItems}</ol>
   <h2>Outputs</h2>
   <ul>${outputItems}</ul>
+  <h2>Reconstructed workflow contract</h2>
+  <p>This manifest preserves the interviewed dependent-file workflow, replaced manual spreadsheet steps, deterministic transforms, and generated outputs inside this single local app.</p>
+  <pre>${workflowContractHtml}</pre>
+  <script type="application/json" id="workflow-contract">${workflowJson}</script>
   <button type="button" onclick="downloadFinalOutputCsv()">Download final output CSV</button>
   <pre id="status">${escapeHtml(initialStatus)}</pre>
   <script>

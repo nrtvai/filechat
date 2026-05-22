@@ -831,7 +831,7 @@ function Transcript(props: {
             <article key={message.id} className={`turn ${message.role}`}>
               <div className="turn-label mono caps">{message.role === "user" ? "You" : "FileChat"}</div>
               <div className="bubble">
-                {message.role === "assistant" && !message.content.trim() ? <NoAnswerNotice /> : <RenderedMessage content={message.content} />}
+                {message.role === "assistant" && !message.content.trim() ? <NoAnswerNotice grounding={message.grounding} /> : <RenderedMessage content={message.content} />}
                 <MessageCost message={message} />
                 {message.role === "assistant" && visibleArtifacts(message, props.contextProfile).length > 0 && (
                   <div className="artifact-list">
@@ -930,11 +930,13 @@ function UnavailableSourceNotice({ unavailableFileIds = [], files = [] }: { unav
   );
 }
 
-function NoAnswerNotice() {
+function NoAnswerNotice({ grounding }: { grounding?: Message["grounding"] }) {
+  const notice = grounding?.notice?.trim() || "No answer was generated.";
+  const detail = grounding?.detail?.trim() || "FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.";
   return (
     <div className="source-strip no-citations no-answer" role="status" aria-live="polite" aria-label="No answer generated">
-      <strong>No answer was generated.</strong>
-      <small>FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.</small>
+      <strong>{notice}</strong>
+      <small>{detail}</small>
     </div>
   );
 }

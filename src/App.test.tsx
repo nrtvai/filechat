@@ -647,8 +647,13 @@ describe("App", () => {
     expect(screen.queryByText("No source needed for this response.")).not.toBeInTheDocument();
   });
 
-  it("shows an honest no-answer state when an assistant message is blank", async () => {
+  it("shows backend grounding detail in the honest no-answer state when an assistant message is blank", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
+    answer.grounding = {
+      status: "no_citations",
+      notice: "No sourced answer could be generated.",
+      detail: "The retrieved local snippets did not support an answer."
+    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/me")) return Response.json(currentUser);
@@ -666,8 +671,9 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("No answer was generated.")).toBeVisible();
-    expect(screen.getByText("FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.")).toBeVisible();
+    expect(await screen.findByText("No sourced answer could be generated.")).toBeVisible();
+    expect(screen.getByText("The retrieved local snippets did not support an answer.")).toBeVisible();
+    expect(screen.queryByText("No answer was generated.")).not.toBeInTheDocument();
     expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
   });
 
