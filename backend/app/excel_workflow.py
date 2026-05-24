@@ -276,11 +276,12 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
       <li>reconciliation-output.csv</li>
     </ul>
   </section>
-  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="import-csv">Import pasted CSV rows</button> <button id="download">Download final output CSV</button></section>
+  <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="import-csv">Import pasted CSV rows</button> <button id="reset">Reset to embedded data</button> <button id="download">Download final output CSV</button></section>
   <section><h2>Parsed worksheet data</h2><p>Paste updated CSV for any input table, import it, then re-run the local reconciliation before downloading the final output.</p><div id="tables" class="grid"></div></section>
 </main>
 <script>
 window.__WORKFLOW__ = {payload};
+const ORIGINAL_WORKFLOW = JSON.parse(JSON.stringify(window.__WORKFLOW__));
 function rowRef(table, index) {{ return `${{table.fileName}} / ${{table.sheetName}} row ${{table.sourceRows[index] || index + 2}}`; }}
 function indexByKey(table, key) {{
   const index = new Map();
@@ -504,7 +505,12 @@ document.getElementById('import-csv').addEventListener('click', () => {{
   render();
   if (errors.length) document.getElementById('report').textContent = 'CSV import failed:\\n' + errors.map(error => `- ${{error}}`).join('\\n') + '\\n\\n' + document.getElementById('report').textContent;
 }});
+function resetWorkflow() {{
+  window.__WORKFLOW__ = JSON.parse(JSON.stringify(ORIGINAL_WORKFLOW));
+  render();
+}}
 document.getElementById('download').addEventListener('click', downloadFinalOutputCsv);
+document.getElementById('reset').addEventListener('click', resetWorkflow);
 render();
 </script>
 </body>

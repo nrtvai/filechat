@@ -529,6 +529,7 @@ export function App() {
               messages={messages}
               runs={runs}
               files={files}
+              upload={upload}
               usageSummary={usageSummary}
               composer={composer}
               setComposer={setComposer}
@@ -781,6 +782,7 @@ function Transcript(props: {
   messages: Message[];
   runs: AgentRun[];
   files: FileRecord[];
+  upload: (files: File[]) => void;
   usageSummary: UsageSummary;
   composer: string;
   setComposer: (value: string) => void;
@@ -893,7 +895,7 @@ function Transcript(props: {
       </div>
       <div className="composer-dock">
         <SessionCostSummary usage={props.usageSummary} />
-        <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk} files={props.files} busy={props.busy} onDetachFile={props.onDetachFile} />
+        <Composer value={props.composer} setValue={props.setComposer} ask={props.ask} disabled={!props.canAsk} files={props.files} upload={props.upload} busy={props.busy} onDetachFile={props.onDetachFile} />
       </div>
     </section>
   );
@@ -1121,9 +1123,11 @@ function Composer(props: {
   ask: (event?: FormEvent) => void;
   disabled: boolean;
   files: FileRecord[];
+  upload?: (files: File[]) => void;
   busy?: boolean;
   onDetachFile?: (fileId: string) => Promise<void>;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const ready = props.files.filter((file) => file.status === "ready").length;
   const processing = props.files.filter((file) => ["queued", "reading", "indexing"].includes(file.status)).length;
   const failed = props.files.filter((file) => file.status === "failed").length;
@@ -1174,6 +1178,14 @@ function Composer(props: {
       />
       <div className="composer-bar">
         <span className="mono">{helper}</span>
+        {props.upload && (
+          <>
+            <button className="icon-btn" type="button" aria-label="Attach files to chat" disabled={props.busy} onClick={() => inputRef.current?.click()}>
+              <Paperclip size={15} />
+            </button>
+            <input ref={inputRef} className="hidden" type="file" aria-label="Attach files to chat" multiple accept={acceptedTypes} disabled={props.busy} onChange={(event) => handleFileInputChange(event, props.upload!)} />
+          </>
+        )}
         <button className="send-btn" disabled={props.disabled || !props.value.trim()} type="submit">
           {props.busy ? <Loader2 className="spin" size={15} /> : <Send size={15} />} Ask
         </button>

@@ -940,6 +940,38 @@ describe("App", () => {
     });
   });
 
+  it("keeps an upload affordance beside the transcript composer", async () => {
+    const report = file("fil_report", "report.txt");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files") && init?.method === "POST") return Response.json([report, file("fil_added", "added.txt", "queued")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([report]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([message("msg_1", "ses_new", "assistant", "A cited answer")]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("A cited answer")).toBeVisible();
+    const attach = screen.getByRole("button", { name: "Attach files to chat" });
+    expect(attach).toBeVisible();
+    const input = document.querySelector('input[aria-label="Attach files to chat"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+
+    chooseFile(input, new File(["added"], "added.txt", { type: "text/plain" }));
+
+    await waitFor(() => expect(uploadPostCount(fetchMock)).toBe(1));
+    expect(input.value).toBe("");
+  });
+
   it("keeps survey chart requests in a plain chat composer and preserves send", async () => {
     const survey = { ...file("fil_survey", "survey.csv"), type: "CSV" };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

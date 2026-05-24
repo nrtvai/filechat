@@ -907,6 +907,54 @@ assert.deepStrictEqual(window.__WORKFLOW__.tables[1].columns, ['SKU', 'Qty']);
         assert result.returncode == 0, result.stderr
 
 
+def test_local_html_runtime_can_reset_pasted_csv_changes_to_embedded_workflow_data():
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\nB2,20\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,10\nB2,20\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "Reset to embedded data" in html
+    assert "function resetWorkflow" in html
+    match = re.search(r"<script>([\s\S]*)</script>", html)
+    assert match is not None
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-reset.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+global.window = {};
+function element() { return { textContent: '', value: '[]', dataset: {}, append() {}, addEventListener() {} }; }
+global.document = {
+  getElementById() { return element(); },
+  querySelectorAll() { return []; },
+  createElement() { return element(); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + match.group(1)
+            + """
+replaceTableFromCsv(window.__WORKFLOW__, 1, 'SKU,Qty\\nA1,12\\nC3,30\\n');
+assert(compareWorkflow(window.__WORKFLOW__).includes('A1` differs'));
+assert(finalOutputCsv(window.__WORKFLOW__).includes('C3,missing_table'));
+resetWorkflow();
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].rows, [{ SKU: 'A1', Qty: '10' }, { SKU: 'B2', Qty: '20' }]);
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].sourceRows, [2, 3]);
+assert(compareWorkflow(window.__WORKFLOW__).includes('No key presence or shared-column value differences'));
+assert(!finalOutputCsv(window.__WORKFLOW__).includes('C3,missing_table'));
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
 def test_local_html_csv_import_skips_unchanged_prepopulated_tables_to_preserve_source_rows():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"
