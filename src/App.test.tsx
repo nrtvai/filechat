@@ -561,6 +561,33 @@ describe("App", () => {
     expect(screen.queryByText("Agent Setup")).not.toBeInTheDocument();
   });
 
+  it("keeps a readable citation label when source metadata is blank", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites a snippet with incomplete metadata.");
+    answer.citations = [{ ...citation("cit_1"), source_label: "   ", location: "" }];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Grounded in 1 local source snippet: Source 1")).toBeVisible();
+    expect(screen.getByText("Sources · 1 · Source 1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    await waitFor(() => expect(screen.getAllByText("Source 1").length).toBeGreaterThan(1));
+    expect(screen.getByText(/local snippet\s+· score\s+0\.99/)).toBeVisible();
+  });
+
   it("names unavailable source files even when the answer has citations", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer cites one local snippet.");
     answer.citations = [citation("cit_1")];

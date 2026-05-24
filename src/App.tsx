@@ -959,15 +959,23 @@ function NoAnswerNotice({ unavailableFileIds = [], files = [], grounding }: { un
 }
 
 function sourceSummaryLabel(citations: Citation[]) {
-  const labels = Array.from(new Set(citations.map((citation) => citation.source_label).filter(Boolean)));
+  const labels = Array.from(new Set(citations.map(citationSourceLabel)));
   if (labels.length === 0) return `Sources · ${citations.length}`;
   const visibleLabels = labels.slice(0, 2).join(", ");
   const remaining = labels.length - 2;
   return `Sources · ${citations.length} · ${visibleLabels}${remaining > 0 ? ` +${remaining} more` : ""}`;
 }
 
+function citationSourceLabel(citation: Citation) {
+  return citation.source_label.trim() || `Source ${citation.ordinal}`;
+}
+
+function citationLocationLabel(citation: Citation) {
+  return citation.location.trim() || "local snippet";
+}
+
 function groundedSourceLabel(citations: Citation[]) {
-  const labels = Array.from(new Set(citations.map((citation) => citation.source_label).filter(Boolean)));
+  const labels = Array.from(new Set(citations.map(citationSourceLabel)));
   const sourceCount = labels.length || citations.length;
   const snippetWord = citations.length === 1 ? "snippet" : "snippets";
   const sourceWord = sourceCount === 1 ? "source" : "sources";
@@ -1012,8 +1020,8 @@ function CitationSourceButton({ citation, onCitationClick, showExcerpt = false }
   return (
     <button className="source-citation-button" type="button" onClick={() => onCitationClick(citation)}>
       <span>{citation.ordinal}</span>
-      <strong>{citation.source_label}</strong>
-      <small>{citation.location}</small>
+      <strong>{citationSourceLabel(citation)}</strong>
+      <small>{citationLocationLabel(citation)}</small>
       {showExcerpt && citation.excerpt.trim() && <em>{citation.excerpt}</em>}
     </button>
   );
@@ -1313,8 +1321,8 @@ function CitationsTab({ citations, highlightCitationId }: { citations: Citation[
       <div className="panel-kicker mono caps">Sources · this session</div>
       {citations.map((citation) => (
         <article id={`citation-${citation.id}`} key={citation.id} className={`citation-card ${citation.id === highlightCitationId ? "highlight" : ""}`}>
-          <div><span>{citation.ordinal}</span><strong>{citation.source_label}</strong></div>
-          <small className="mono">{citation.location} · score {citation.score.toFixed(2)}</small>
+          <div><span>{citation.ordinal}</span><strong>{citationSourceLabel(citation)}</strong></div>
+          <small className="mono">{citationLocationLabel(citation)} · score {citation.score.toFixed(2)}</small>
           <p>{citation.excerpt}</p>
         </article>
       ))}
@@ -1367,8 +1375,8 @@ function ArtifactsTab({
       </article>
       {sourceCitations.map((citation) => (
         <article id={`artifact-source-${citation.id}`} key={citation.id} className="citation-card">
-          <div><span>{citation.ordinal}</span><strong>{citation.source_label}</strong></div>
-          <small className="mono">{citation.location}</small>
+          <div><span>{citation.ordinal}</span><strong>{citationSourceLabel(citation)}</strong></div>
+          <small className="mono">{citationLocationLabel(citation)}</small>
           <p>{citation.excerpt}</p>
         </article>
       ))}
