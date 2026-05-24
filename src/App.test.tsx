@@ -850,7 +850,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("1 of 3 files ready")).toBeVisible();
-    expect(screen.getByText("1 ready source · 1 processing · 1 failed · Cmd/Ctrl+Enter to send")).toBeVisible();
+    expect(screen.getByText("1 ready source · 1 processing · 1 failed · answers use ready sources only · Cmd/Ctrl+Enter to send")).toBeVisible();
   });
 
   it("does not submit to a newly selected session while its files and messages are still loading", async () => {
@@ -1166,6 +1166,35 @@ describe("App", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/sessions/ses_new/files/fil_failed/retry", expect.objectContaining({ method: "POST" }));
     });
+  });
+
+  it("tells users when answers will only use ready sources from a mixed file set", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 3));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 3)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_ready", "ready.txt"),
+        file("fil_processing", "processing.txt", "indexing"),
+        file("fil_failed", "failed.pdf", "failed", "OpenRouter authentication failed")
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const input = await screen.findByLabelText("Ask a question about the selected files");
+
+    expect(await screen.findByText(/1 ready source · 1 processing · 1 failed · answers use ready sources only · Cmd\/Ctrl\+Enter to send/)).toBeVisible();
+    fireEvent.change(input, { target: { value: "Summarize what is ready" } });
+    expect(await enabledAskButton()).toBeVisible();
   });
 
   it("allows drafting when no files are ready but does not submit", async () => {

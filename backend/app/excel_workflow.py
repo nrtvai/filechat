@@ -277,7 +277,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     </ul>
   </section>
   <section><h2>Workflow report</h2><pre id="report"></pre><button id="run">Run local reconciliation</button> <button id="import-csv">Import pasted CSV rows</button> <button id="reset">Reset to embedded data</button> <button id="download">Download final output CSV</button></section>
-  <section><h2>Parsed worksheet data</h2><p>Paste updated CSV for any input table, import it, then re-run the local reconciliation before downloading the final output.</p><div id="tables" class="grid"></div></section>
+  <section><h2>Parsed worksheet data</h2><p>Paste updated CSV/TSV for any input table, import it, then re-run the local reconciliation before downloading the final output.</p><div id="tables" class="grid"></div></section>
 </main>
 <script>
 window.__WORKFLOW__ = {payload};
@@ -389,6 +389,9 @@ function parseCsvText(text) {{
   let quoted = false;
   let lineNumber = 1;
   let rowStartLine = 1;
+  const firstLine = (String(text || '').split(String.fromCharCode(10), 1)[0] || '').replace(String.fromCharCode(13), '');
+  const tab = String.fromCharCode(9);
+  const delimiter = (firstLine.split(tab).length - 1) > (firstLine.split(',').length - 1) ? tab : ',';
   const finishRow = () => {{
     row.push(cell.trim());
     if (row.some(value => value !== '')) parsedRows.push({{ cells: row, sourceRow: rowStartLine }});
@@ -411,7 +414,7 @@ function parseCsvText(text) {{
       continue;
     }}
     if (char === '"') {{ quoted = true; continue; }}
-    if (char === ',') {{ row.push(cell.trim()); cell = ''; continue; }}
+    if (char === delimiter) {{ row.push(cell.trim()); cell = ''; continue; }}
     if (char === String.fromCharCode(10) || char === String.fromCharCode(13)) {{
       if (char === String.fromCharCode(13) && text[i + 1] === String.fromCharCode(10)) i += 1;
       finishRow();
@@ -479,7 +482,7 @@ function render() {{
     heading.textContent = `${{table.fileName}} / ${{table.sheetName}}`;
     area.dataset.table = String(i);
     area.value = JSON.stringify(table.rows, null, 2);
-    csvHeading.textContent = 'Paste updated CSV for this input table';
+    csvHeading.textContent = 'Paste updated CSV/TSV for this input table';
     csvArea.dataset.csvTable = String(i);
     csvArea.value = tableToCsv(table);
     csvArea.dataset.originalCsv = csvArea.value;
