@@ -452,6 +452,28 @@ def test_local_html_manifest_embeds_workflow_contract_for_generated_app_runtime(
     assert "const transforms = workflow.transforms || [];" in html
 
 
+def test_local_html_manifest_embeds_ordered_runtime_stages_for_dependent_workflow():
+    html = build_excel_workflow_html_app(
+        "turn my weekly spreadsheet copy/paste/edit reconciliation into a local HTML app",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\nB2,20\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,12\nC3,30\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert '"runtimeStages":[{"id":"load_inputs","label":"Load embedded input tables","dependsOn":[]}' in html
+    assert '{"id":"index_shared_key","label":"Index rows by shared key SKU","dependsOn":["load_inputs"]}' in html
+    assert '{"id":"compare_rows","label":"Compare dependent rows and shared columns","dependsOn":["index_shared_key"]}' in html
+    assert '{"id":"export_outputs","label":"Render report and CSV output","dependsOn":["compare_rows"]}' in html
+    assert "Ordered local runtime stages" in html
+    assert "Load embedded input tables" in html
+    assert "Compare dependent rows and shared columns" in html
+    assert "const stages = workflow.runtimeStages || [];" in html
+    assert "container.dataset.runtimeStages = String(stages.length);" in html
+
+
 def test_schema_only_local_html_workflow_contract_does_not_claim_key_matching():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"

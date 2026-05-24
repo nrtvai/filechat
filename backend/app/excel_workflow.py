@@ -171,6 +171,12 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
             "Compare shared non-key columns with embedded local JavaScript",
             "Generate value_difference, missing_table, duplicate_key, and matched statuses",
         ]
+        runtime_stages = [
+            {"id": "load_inputs", "label": "Load embedded input tables", "dependsOn": []},
+            {"id": "index_shared_key", "label": f"Index rows by shared key {key}", "dependsOn": ["load_inputs"]},
+            {"id": "compare_rows", "label": "Compare dependent rows and shared columns", "dependsOn": ["index_shared_key"]},
+            {"id": "export_outputs", "label": "Render report and CSV output", "dependsOn": ["compare_rows"]},
+        ]
     else:
         manual_steps_replaced = [
             "Collect row counts and headers from each workbook by hand",
@@ -182,6 +188,11 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
             "Generate a schema_only CSV summary row with embedded local JavaScript",
             "Preserve each input table so the workflow can be edited and inspected locally",
         ]
+        runtime_stages = [
+            {"id": "load_inputs", "label": "Load embedded input tables", "dependsOn": []},
+            {"id": "compare_schemas", "label": "Compare worksheet schemas without key matching", "dependsOn": ["load_inputs"]},
+            {"id": "export_outputs", "label": "Render schema report and CSV output", "dependsOn": ["compare_schemas"]},
+        ]
     manifest = {
         "title": "Spreadsheet Workflow Automator",
         "question": question,
@@ -192,6 +203,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         "runInstructions": run_instructions,
         "manualStepsReplaced": manual_steps_replaced,
         "transforms": transforms,
+        "runtimeStages": runtime_stages,
         "outputs": outputs,
         "tables": [
             {
@@ -217,6 +229,15 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     )
     manual_step_items_html = "\n".join(f"      <li>{html_lib.escape(step)}</li>" for step in manual_steps_replaced)
     transform_items_html = "\n".join(f"      <li>{html_lib.escape(transform)}</li>" for transform in transforms)
+    runtime_stage_items_html = "\n".join(
+        "      <li>"
+        + html_lib.escape(
+            f"{stage['label']}"
+            + (f" (depends on: {', '.join(stage['dependsOn'])})" if stage["dependsOn"] else "")
+        )
+        + "</li>"
+        for stage in runtime_stages
+    )
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -270,6 +291,10 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     <ul>
 {transform_items_html}
     </ul>
+    <h3>Ordered local runtime stages</h3>
+    <ol>
+{runtime_stage_items_html}
+    </ol>
     <h3>Final outputs</h3>
     <ul>
       <li>On-screen workflow report</li>
@@ -468,10 +493,12 @@ function render() {{
   const workflow = window.__WORKFLOW__;
   const steps = workflow.manualStepsReplaced || [];
   const transforms = workflow.transforms || [];
+  const stages = workflow.runtimeStages || [];
   document.getElementById('report').textContent = compareWorkflow(workflow);
   const container = document.getElementById('tables');
   container.dataset.manualSteps = String(steps.length);
   container.dataset.transforms = String(transforms.length);
+  container.dataset.runtimeStages = String(stages.length);
   container.textContent = '';
   workflow.tables.forEach((table, i) => {{
     const article = document.createElement('article');

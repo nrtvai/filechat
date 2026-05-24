@@ -866,7 +866,7 @@ function Transcript(props: {
                 {message.role === "assistant" && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
                   <UnavailableSourceNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
                 )}
-                {message.role === "assistant" && message.content.trim() && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.length === 0 || props.files.some((file) => file.status === "ready" || file.status === "failed") || (message.unavailable_file_ids?.length ?? 0) > 0) && (
+                {message.role === "assistant" && message.content.trim() && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.length === 0 || props.files.some((file) => file.status === "ready" || file.status === "failed" || ["queued", "reading", "indexing"].includes(file.status)) || (message.unavailable_file_ids?.length ?? 0) > 0) && (
                   <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} />
                 )}
               </div>
@@ -909,6 +909,9 @@ function visibleArtifacts(message: Message, profile: ContextProfile) {
 function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngroundedWarning = false }: { unavailableFileIds?: string[]; files?: FileRecord[]; includeUngroundedWarning?: boolean }) {
   const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
   const readyLabels = files.filter((file) => file.status === "ready").map((file) => file.name);
+  const processingLabels = files
+    .filter((file) => ["queued", "reading", "indexing"].includes(file.status))
+    .map((file) => `${file.name} (${file.status} ${Math.round(file.progress * 100)}%)`);
   const failedLabels = files
     .filter((file) => file.status === "failed")
     .map((file) => file.error ? `${file.name} (${fileErrorSummary(file)})` : file.name);
@@ -918,6 +921,7 @@ function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngr
       {includeUngroundedWarning && readyLabels.length > 0 && <small>Treat this answer as ungrounded until a cited snippet supports it.</small>}
       {includeUngroundedWarning && hasNoLocalSourceContext && <small>Attach local documents before relying on FileChat for grounded document answers.</small>}
       {readyLabels.length > 0 && <small>Available source context: {readyLabels.join(", ")}</small>}
+      {processingLabels.length > 0 && <small>Processing source context: {processingLabels.join(", ")}</small>}
       {failedLabels.length > 0 && <small>Failed source context: {failedLabels.join(", ")}</small>}
       {unavailableLabels.length > 0 && <small>Unavailable sources: {unavailableLabels.join(", ")}</small>}
     </>
