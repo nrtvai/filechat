@@ -499,6 +499,26 @@ def test_local_html_manifest_embeds_ordered_runtime_stages_for_dependent_workflo
     assert "container.dataset.runtimeStages = String(stages.length);" in html
 
 
+def test_local_html_app_embeds_workflow_reconstruction_interview_prompts():
+    html = build_excel_workflow_html_app(
+        "turn my weekly spreadsheet copy/paste/edit reconciliation into a local HTML app",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\nB2,20\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,12\nC3,30\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "Workflow reconstruction interview" in html
+    assert "Which source tabs, row ranges, and columns are copied from each input spreadsheet?" in html
+    assert "Which spreadsheet rows depend on the shared key SKU?" in html
+    assert "Which manual edits or judgment calls must become deterministic rules before export?" in html
+    assert '"interviewPrompts":["Which source tabs, row ranges, and columns are copied from each input spreadsheet?"' in html
+    assert "const interviewPrompts = workflow.interviewPrompts || [];" in html
+    assert "container.dataset.interviewPrompts = String(interviewPrompts.length);" in html
+
+
 def test_schema_only_local_html_workflow_contract_does_not_claim_key_matching():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"

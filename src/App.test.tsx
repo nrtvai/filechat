@@ -535,6 +535,9 @@ describe("App", () => {
 
     const summary = await screen.findByText("Sources · 1 · report.txt");
     expect(summary).toBeVisible();
+
+    fireEvent.click(summary);
+    expect(await screen.findByText("Source excerpt")).toBeVisible();
   });
 
   it("labels cited assistant answers as grounded in local source snippets", async () => {
@@ -1858,7 +1861,7 @@ describe("App", () => {
     expect(screen.getByText("4월")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Copy request/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Open source" })[0]);
-    expect(await screen.findByText("Source excerpt")).toBeInTheDocument();
+    expect((await screen.findAllByText("Source excerpt")).length).toBeGreaterThan(0);
   });
 
   it("renders bullet glyph assistant responses as lists", async () => {
@@ -1914,7 +1917,7 @@ describe("App", () => {
     expect(screen.getByText("Yes")).toBeInTheDocument();
     expect(screen.getByText("10")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open source for Yes" }));
-    expect(await screen.findByText("Source excerpt")).toBeInTheDocument();
+    expect((await screen.findAllByText("Source excerpt")).length).toBeGreaterThan(0);
   });
 
   it("renders line and pie chart artifacts with distinct native SVGs", async () => {

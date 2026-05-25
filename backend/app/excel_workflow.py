@@ -160,6 +160,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         "Open this generated .html file directly from disk. The workflow data and reconciliation logic are embedded for local use.",
     ]
     outputs = ["On-screen workflow report", "reconciliation-output.csv"]
+    interview_prompts = _workflow_interview_prompts(key)
     if key:
         manual_steps_replaced = [
             "Paste rows from each spreadsheet into one comparison sheet",
@@ -201,6 +202,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         "tableCount": len(tables),
         "answer": answer["answer"] if answer else "",
         "runInstructions": run_instructions,
+        "interviewPrompts": interview_prompts,
         "manualStepsReplaced": manual_steps_replaced,
         "transforms": transforms,
         "runtimeStages": runtime_stages,
@@ -238,6 +240,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         + "</li>"
         for stage in runtime_stages
     )
+    interview_prompt_items_html = "\n".join(f"      <li>{html_lib.escape(prompt)}</li>" for prompt in interview_prompts)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -299,6 +302,11 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     <h3>Ordered local runtime stages</h3>
     <ol>
 {runtime_stage_items_html}
+    </ol>
+    <h3>Workflow reconstruction interview</h3>
+    <p>Use these prompts with the workflow owner before finalizing the generated app, so dependent copy/paste/edit steps become explicit deterministic rules.</p>
+    <ol>
+{interview_prompt_items_html}
     </ol>
     <h3>Final outputs</h3>
     <ul>
@@ -499,11 +507,13 @@ function render() {{
   const steps = workflow.manualStepsReplaced || [];
   const transforms = workflow.transforms || [];
   const stages = workflow.runtimeStages || [];
+  const interviewPrompts = workflow.interviewPrompts || [];
   document.getElementById('report').textContent = compareWorkflow(workflow);
   const container = document.getElementById('tables');
   container.dataset.manualSteps = String(steps.length);
   container.dataset.transforms = String(transforms.length);
   container.dataset.runtimeStages = String(stages.length);
+  container.dataset.interviewPrompts = String(interviewPrompts.length);
   container.textContent = '';
   workflow.tables.forEach((table, i) => {{
     const article = document.createElement('article');
@@ -551,6 +561,23 @@ render();
 </body>
 </html>
 """
+
+
+def _workflow_interview_prompts(key: str | None) -> list[str]:
+    prompts = [
+        "Which source tabs, row ranges, and columns are copied from each input spreadsheet?",
+    ]
+    if key:
+        prompts.append(f"Which spreadsheet rows depend on the shared key {key}?")
+    else:
+        prompts.append("Which columns or business rules should define row dependencies when no shared key is obvious?")
+    prompts.extend(
+        [
+            "Which manual edits or judgment calls must become deterministic rules before export?",
+            "What final CSV checks prove the local HTML app replaced the old copy/paste workflow?",
+        ]
+    )
+    return prompts
 
 
 def _workflow_tables(file_texts: list[dict[str, Any]], sources: list[dict[str, Any]]) -> list[WorkflowTable]:

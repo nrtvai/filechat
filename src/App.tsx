@@ -1014,7 +1014,7 @@ function SourcesDisclosure({ citations, onCitationClick, minimized }: { citation
       <summary>{sourceSummaryLabel(citations)}</summary>
       <div>
         {citations.map((citation) => (
-          <CitationSourceButton key={citation.id} citation={citation} onCitationClick={onCitationClick} />
+          <CitationSourceButton key={citation.id} citation={citation} onCitationClick={onCitationClick} showExcerpt />
         ))}
       </div>
     </details>
