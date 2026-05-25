@@ -110,6 +110,9 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   const transformItems = workflow.transforms
     .map((transform) => `<li><strong>${escapeHtml(transform.id)}</strong>: ${escapeHtml(transform.description)}</li>`)
     .join("");
+  const interviewItems = buildWorkflowReconstructionInterview(workflow)
+    .map((question) => `<li>${escapeHtml(question)}</li>`)
+    .join("");
   const workflowJson = serializeJsonForInlineScript(workflow);
   const workflowContractHtml = escapeHtml(JSON.stringify(workflow, null, 2));
 
@@ -138,6 +141,9 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   <ol>${transformItems}</ol>
   <h2>Outputs</h2>
   <ul>${outputItems}</ul>
+  <h2>Workflow reconstruction interview</h2>
+  <p>Use these prompts while interviewing the workflow owner so this app captures dependent spreadsheet copy/paste/edit behavior before replacing it with deterministic code.</p>
+  <ol>${interviewItems}</ol>
   <h2>Reconstructed workflow contract</h2>
   <p>This manifest preserves the interviewed dependent-file workflow, replaced manual spreadsheet steps, deterministic transforms, and generated outputs inside this single local app.</p>
   <pre>${workflowContractHtml}</pre>
@@ -330,6 +336,25 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   </script>
 </body>
 </html>`;
+}
+
+function buildWorkflowReconstructionInterview(workflow: LocalHtmlWorkflowApp["workflow"]) {
+  const inputQuestions = workflow.inputs.map(
+    (input) => `Which tabs, named ranges, or columns from ${input} are copied or referenced?`,
+  );
+  const stepQuestions = workflow.manualStepsReplaced.map(
+    (step, index) => `What exact ordering, filters, formulas, and paste destinations define step ${index + 1}: ${step}?`,
+  );
+  const outputQuestions = workflow.outputs.map(
+    (output) => `What output checks prove ${output} matches the old spreadsheet workflow?`,
+  );
+  return [
+    ...inputQuestions,
+    "Which input files depend on each other, and what keys or dates connect them?",
+    ...stepQuestions,
+    "Which edits were judgment calls that must become explicit deterministic rules?",
+    ...outputQuestions,
+  ];
 }
 
 function withRequiredFinalOutput(outputs: string[]) {

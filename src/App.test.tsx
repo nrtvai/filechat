@@ -747,6 +747,37 @@ describe("App", () => {
     expect(screen.queryByText("No source needed for this response.")).not.toBeInTheDocument();
   });
 
+  it("keeps cited blank assistant turns honest instead of labeling them grounded answers", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
+    answer.citations = [citation("cit_1")];
+    answer.grounding = {
+      status: "no_citations",
+      notice: "No sourced answer could be generated.",
+      detail: "The model returned citations but no answer text."
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_report", "report.txt")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("No sourced answer could be generated.")).toBeVisible();
+    expect(screen.getByText("The model returned citations but no answer text.")).toBeVisible();
+    expect(screen.getByText("Sources · 1 · report.txt")).toBeVisible();
+    expect(screen.queryByText("Grounded in 1 local source snippet: report.txt")).not.toBeInTheDocument();
+  });
+
   it("shows backend grounding detail and source context in the honest no-answer state when an assistant message is blank", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
     answer.grounding = {

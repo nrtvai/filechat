@@ -67,6 +67,27 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
   });
 
+  it("includes a targeted reconstruction interview checklist for dependent spreadsheet workflows", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      workflow: {
+        inputs: ["sales_orders.csv", "warehouse_stock_units.csv"],
+        manualStepsReplaced: ["copy weekly sales rows into the reorder sheet", "edit reorder quantity column by SKU"],
+        transforms: [
+          { id: "join-sales-stock", description: "Join sales to stock by SKU", deterministic: true },
+          { id: "calculate-reorder", description: "Calculate reorder quantity from sales and on-hand units", deterministic: true },
+        ],
+      },
+    });
+
+    expect(app.html).toContain("<h2>Workflow reconstruction interview</h2>");
+    expect(app.html).toContain("Which tabs, named ranges, or columns from sales_orders.csv are copied or referenced?");
+    expect(app.html).toContain("Which tabs, named ranges, or columns from warehouse_stock_units.csv are copied or referenced?");
+    expect(app.html).toContain("What exact ordering, filters, formulas, and paste destinations define step 1: copy weekly sales rows into the reorder sheet?");
+    expect(app.html).toContain("What output checks prove reconciliation-output.csv matches the old spreadsheet workflow?");
+    expect(app.html).not.toContain("Ask questions about a spreadsheet");
+  });
+
   it("preserves additional declared outputs while adding the deterministic reconciliation CSV", () => {
     const app = generateLocalHtmlWorkflowApp({
       title: "Weekly close workbook builder",

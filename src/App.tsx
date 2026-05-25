@@ -829,13 +829,14 @@ function Transcript(props: {
       <div ref={scrollRef} className="turns" onScroll={onScroll}>
         {props.messages.map((message) => {
           const messageRun = message.role === "assistant" ? props.runs.find((run) => run.assistant_message_id === message.id) : undefined;
+          const hasAnswerText = message.content.trim().length > 0;
           return (
             <article key={message.id} className={`turn ${message.role}`}>
               <div className="turn-label mono caps">{message.role === "user" ? "You" : "FileChat"}</div>
               <div className="bubble">
-                {message.role === "assistant" && !message.content.trim() ? <NoAnswerNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} /> : <RenderedMessage content={message.content} />}
+                {message.role === "assistant" && !hasAnswerText ? <NoAnswerNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} /> : <RenderedMessage content={message.content} />}
                 <MessageCost message={message} />
-                {message.role === "assistant" && visibleArtifacts(message, props.contextProfile).length > 0 && (
+                {message.role === "assistant" && hasAnswerText && visibleArtifacts(message, props.contextProfile).length > 0 && (
                   <div className="artifact-list">
                     {visibleArtifacts(message, props.contextProfile).map((artifact) => (
                       <ArtifactRenderer
@@ -857,16 +858,16 @@ function Transcript(props: {
                   />
                 )}
                 {messageRun && <AgentActivity run={messageRun} compact />}
-                {message.role === "assistant" && message.citations.length > 0 && (
+                {message.role === "assistant" && hasAnswerText && message.citations.length > 0 && (
                   <GroundedSourceNotice citations={message.citations} />
                 )}
                 {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
                 )}
-                {message.role === "assistant" && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
+                {message.role === "assistant" && hasAnswerText && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
                   <UnavailableSourceNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
                 )}
-                {message.role === "assistant" && message.content.trim() && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.length === 0 || props.files.some((file) => file.status === "ready" || file.status === "failed" || ["queued", "reading", "indexing"].includes(file.status)) || (message.unavailable_file_ids?.length ?? 0) > 0) && (
+                {message.role === "assistant" && hasAnswerText && message.citations.length === 0 && message.grounding?.status !== "not_applicable" && (message.grounding?.status === "no_citations" || props.files.length === 0 || props.files.some((file) => file.status === "ready" || file.status === "failed" || ["queued", "reading", "indexing"].includes(file.status)) || (message.unavailable_file_ids?.length ?? 0) > 0) && (
                   <NoCitationNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} grounding={message.grounding} />
                 )}
               </div>
