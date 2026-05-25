@@ -402,6 +402,31 @@ def test_local_html_app_shows_local_run_instructions_and_workflow_manifest():
     assert "https://" not in html
 
 
+def test_local_html_app_declares_offline_no_network_runtime_boundary():
+    html = build_excel_workflow_html_app(
+        "turn my spreadsheet copy/paste/edit workflow into a local HTML app",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": "SKU,Qty\nA1,10\n"},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": "SKU,Qty\nA1,12\n"},
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "Content-Security-Policy" in html
+    assert "default-src 'none'" in html
+    assert "connect-src 'none'" in html
+    assert "object-src 'none'" in html
+    assert "base-uri 'none'" in html
+    assert "form-action 'none'" in html
+    assert "Offline/no-network boundary" in html
+    assert "No external network calls, remote scripts, or uploads are used" in html
+    assert "http://" not in html
+    assert "https://" not in html
+    assert not re.search(r"\b(fetch|XMLHttpRequest|WebSocket|EventSource)\b", html)
+    assert "sendBeacon" not in html
+
+
 def test_local_html_manifest_embeds_workflow_contract_for_generated_app_runtime():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"

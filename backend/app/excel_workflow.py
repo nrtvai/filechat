@@ -243,6 +243,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Spreadsheet Workflow Automator</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; color: #172033; background: #f7f8fb; }}
@@ -258,6 +259,10 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
 <main>
   <h1>Spreadsheet Workflow Automator</h1>
   <p>Standalone local runtime: edit rows below and re-run the deterministic reconciliation in this browser. No network or spreadsheet copy/paste is required.</p>
+  <section>
+    <h2>Offline/no-network boundary</h2>
+    <p>No external network calls, remote scripts, or uploads are used. This generated app embeds the workflow data and runs entirely in the browser from the saved local HTML file.</p>
+  </section>
   <section>
     <h2>How to run this local app</h2>
     <ol>
