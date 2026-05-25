@@ -620,6 +620,39 @@ describe("App", () => {
     expect(screen.getByText("Unavailable sources: notes.pdf")).toBeVisible();
   });
 
+  it("warns when citations point at sources that are not ready in the current chat", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites a source that is not in ready context.");
+    answer.citations = [
+      { ...citation("cit_1"), file_id: "fil_old", source_label: "old-report.pdf" },
+      { ...citation("cit_2"), file_id: "fil_draft", source_label: "draft.pdf", ordinal: 2 }
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 2));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 2)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_report", "report.txt"),
+        file("fil_draft", "draft.pdf", "indexing")
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Sources · 2 · old-report.pdf, draft.pdf")).toBeVisible();
+    expect(screen.getByText("Some cited sources are not ready in this chat.")).toBeVisible();
+    expect(screen.getByText("Check or re-upload before relying on these citations: old-report.pdf, draft.pdf")).toBeVisible();
+    expect(screen.queryByText("Grounded in 2 local source snippets: old-report.pdf, draft.pdf")).not.toBeInTheDocument();
+    expect(screen.queryByText("Each cited snippet is from the attached local documents.")).not.toBeInTheDocument();
+  });
+
   it("warns that an answer with ready files but no citations is ungrounded", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer has no cited snippets.");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

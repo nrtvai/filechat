@@ -1,3 +1,5 @@
+import ordersFixture from "./__fixtures__/orders.csv?raw";
+import stockFixture from "./__fixtures__/stock.tsv?raw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateLocalHtmlWorkflowApp, validateLocalHtmlWorkflowApp } from "./workflowValidation";
 
@@ -167,6 +169,33 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(csv).not.toContain("\n  =cmd");
   });
 
+  it("records declared input dependency keys in the local runtime export using fixture-backed input files", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Fixture-backed inventory workflow",
+      workflow: {
+        inputs: ["orders.csv", "stock.tsv"],
+        manualStepsReplaced: ["copy order rows into stock spreadsheet by SKU"],
+        transforms: [{ id: "join-orders-stock", description: "Join selected files by SKU", deterministic: true }],
+        inputDependencies: [{ from: "orders.csv", to: "stock.tsv", key: "sku" }],
+      },
+    });
+    const inputTexts = {
+      "orders.csv": ordersFixture,
+      "stock.tsv": stockFixture,
+    };
+
+    const csv = runGeneratedWorkflowCsv(app.html, inputTexts);
+
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
+    expect(app.html).toContain("<h2>Input dependencies</h2>");
+    expect(app.html).toContain("orders.csv → stock.tsv by sku");
+    expect(csv.split("\n")[0]).toBe(
+      "output_file,required_input_files,transform_count,manual_step_count,input_dependency_count,input_file,row_count,column_count,character_count,content_checksum,content_preview",
+    );
+    expect(csv).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,1,orders.csv,3,2,");
+    expect(csv).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,1,stock.tsv,3,2,");
+  });
+
   it("builds deterministic final CSV rows from selected local input file contents", () => {
     const app = generateLocalHtmlWorkflowApp({
       title: "Content-based workflow",
@@ -191,10 +220,10 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(csvA).toBe(csvARepeat);
     expect(csvA).not.toBe(csvB);
     expect(csvA.split("\n")[0]).toBe(
-      "output_file,required_input_files,transform_count,manual_step_count,input_file,row_count,column_count,character_count,content_checksum,content_preview",
+      "output_file,required_input_files,transform_count,manual_step_count,input_dependency_count,input_file,row_count,column_count,character_count,content_checksum,content_preview",
     );
-    expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,orders.csv,3,2,");
-    expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,stock.tsv,2,2,");
+    expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,0,orders.csv,3,2,");
+    expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,0,stock.tsv,2,2,");
   });
 
   it("summarizes binary spreadsheet inputs as opaque local content instead of delimited rows", () => {
@@ -216,7 +245,7 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(validateLocalHtmlWorkflowApp(app)).toEqual({ ok: true, errors: [] });
     expect(app.html.match(/accept="\.csv,\.tsv,\.xls,\.xlsx,\.xlsm"/g)).toHaveLength(3);
     expect(csv).toContain(
-      "reconciliation-output.csv,ledger.xlsx|bank_export.xlsm|notes.xls,1,1,ledger.xlsx,N/A,N/A,",
+      "reconciliation-output.csv,ledger.xlsx|bank_export.xlsm|notes.xls,1,1,0,ledger.xlsx,N/A,N/A,",
     );
     expect(csv).toContain("Binary spreadsheet content is not parsed in this local HTML app.");
     expect(csv).not.toContain("ledger.xlsx,1,1");

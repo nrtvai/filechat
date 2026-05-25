@@ -13,6 +13,11 @@ export interface LocalHtmlWorkflowApp {
       description: string;
       deterministic: boolean;
     }>;
+    inputDependencies?: Array<{
+      from: string;
+      to: string;
+      key: string;
+    }>;
     outputs: string[];
   };
 }
@@ -31,7 +36,7 @@ export interface WorkflowValidationResult {
 
 export function generateLocalHtmlWorkflowApp(spec: LocalHtmlWorkflowAppSpec): LocalHtmlWorkflowApp {
   const outputs = withRequiredFinalOutput(spec.workflow.outputs ?? []);
-  const workflow = { ...spec.workflow, outputs };
+  const workflow = { ...spec.workflow, inputDependencies: spec.workflow.inputDependencies ?? [], outputs };
 
   return {
     title: spec.title,
@@ -110,6 +115,12 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   const transformItems = workflow.transforms
     .map((transform) => `<li><strong>${escapeHtml(transform.id)}</strong>: ${escapeHtml(transform.description)}</li>`)
     .join("");
+  const dependencyItems = (workflow.inputDependencies ?? [])
+    .map((dependency) => `<li>${escapeHtml(dependency.from)} → ${escapeHtml(dependency.to)} by ${escapeHtml(dependency.key)}</li>`)
+    .join("");
+  const dependencySection = dependencyItems.length > 0
+    ? `  <h2>Input dependencies</h2>\n  <ol>${dependencyItems}</ol>\n`
+    : "";
   const interviewItems = buildWorkflowReconstructionInterview(workflow)
     .map((question) => `<li>${escapeHtml(question)}</li>`)
     .join("");
@@ -139,7 +150,7 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
   <ol>${stepItems}</ol>
   <h2>Deterministic transforms</h2>
   <ol>${transformItems}</ol>
-  <h2>Outputs</h2>
+${dependencySection}  <h2>Outputs</h2>
   <ul>${outputItems}</ul>
   <h2>Workflow reconstruction interview</h2>
   <p>Use these prompts while interviewing the workflow owner so this app captures dependent spreadsheet copy/paste/edit behavior before replacing it with deterministic code.</p>
@@ -179,8 +190,9 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
 
     function buildFinalOutputCsv(inputFileTexts) {
       const texts = inputFileTexts || {};
+      const dependencyCount = Array.isArray(workflow.inputDependencies) ? workflow.inputDependencies.length : 0;
       const rows = [
-        ['output_file', 'required_input_files', 'transform_count', 'manual_step_count', 'input_file', 'row_count', 'column_count', 'character_count', 'content_checksum', 'content_preview'],
+        ['output_file', 'required_input_files', 'transform_count', 'manual_step_count', 'input_dependency_count', 'input_file', 'row_count', 'column_count', 'character_count', 'content_checksum', 'content_preview'],
         ...workflow.inputs.map(inputName => {
           const text = Object.prototype.hasOwnProperty.call(texts, inputName) ? String(texts[inputName]) : '';
           const summary = summarizeInputFileContent(inputName, text);
@@ -189,6 +201,7 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
             workflow.inputs.join('|'),
             String(workflow.transforms.length),
             String(workflow.manualStepsReplaced.length),
+            String(dependencyCount),
             inputName,
             String(summary.rowCount),
             String(summary.columnCount),

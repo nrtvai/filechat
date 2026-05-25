@@ -859,10 +859,13 @@ function Transcript(props: {
                 )}
                 {messageRun && <AgentActivity run={messageRun} compact />}
                 {message.role === "assistant" && hasAnswerText && message.citations.length > 0 && (
-                  <GroundedSourceNotice citations={message.citations} />
+                  <GroundedSourceNotice citations={message.citations} files={props.files} />
                 )}
                 {message.role === "assistant" && message.citations.length > 0 && (
                   <SourcesDisclosure citations={message.citations} onCitationClick={props.onCitationClick} minimized={props.contextProfile.citation_display === "minimized"} />
+                )}
+                {message.role === "assistant" && hasAnswerText && message.citations.length > 0 && (
+                  <CitationReadinessNotice citations={message.citations} files={props.files} />
                 )}
                 {message.role === "assistant" && hasAnswerText && message.citations.length > 0 && (message.unavailable_file_ids?.length ?? 0) > 0 && (
                   <UnavailableSourceNotice unavailableFileIds={message.unavailable_file_ids} files={props.files} />
@@ -951,6 +954,26 @@ function UnavailableSourceNotice({ unavailableFileIds = [], files = [] }: { unav
   );
 }
 
+function citationReadinessLabels(citations: Citation[], files: FileRecord[]) {
+  const readyFileIds = new Set(files.filter((file) => file.status === "ready").map((file) => file.id));
+  return Array.from(new Set(
+    citations
+      .filter((citation) => !readyFileIds.has(citation.file_id))
+      .map((citation) => files.find((file) => file.id === citation.file_id)?.name ?? citationSourceLabel(citation))
+  ));
+}
+
+function CitationReadinessNotice({ citations, files }: { citations: Citation[]; files: FileRecord[] }) {
+  const notReadyLabels = citationReadinessLabels(citations, files);
+  if (notReadyLabels.length === 0) return null;
+  return (
+    <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="Cited sources not ready">
+      <strong>Some cited sources are not ready in this chat.</strong>
+      <small>Check or re-upload before relying on these citations: {notReadyLabels.join(", ")}</small>
+    </div>
+  );
+}
+
 function NoAnswerNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
   const notice = grounding?.notice?.trim() || "No answer was generated.";
   const detail = grounding?.detail?.trim() || "FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.";
@@ -990,7 +1013,8 @@ function groundedSourceLabel(citations: Citation[]) {
   return `Grounded in ${citations.length} local source ${snippetWord}${sourceCount !== citations.length ? ` across ${sourceCount} ${sourceWord}` : ""}${sourceSuffix}`;
 }
 
-function GroundedSourceNotice({ citations }: { citations: Citation[] }) {
+function GroundedSourceNotice({ citations, files }: { citations: Citation[]; files: FileRecord[] }) {
+  if (citationReadinessLabels(citations, files).length > 0) return null;
   return (
     <div className="source-strip grounded-source" role="status" aria-label="Grounded answer">
       <strong>{groundedSourceLabel(citations)}</strong>
