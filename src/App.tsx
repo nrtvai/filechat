@@ -935,10 +935,17 @@ function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngr
 }
 
 function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
+  const hasReadyLocalSources = files.some((file) => file.status === "ready");
   const hasNoLocalSourceContext = files.length === 0 && unavailableFileIds.length === 0;
+  const hasOnlyUnavailableSources = !hasReadyLocalSources && unavailableFileIds.length > 0;
+  const fallbackNotice = hasNoLocalSourceContext
+    ? "No local sources were available for this answer."
+    : hasOnlyUnavailableSources
+      ? "No available local sources supported this answer."
+      : "No citations attached to this answer.";
   return (
     <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="No citations attached">
-      <strong>{grounding?.notice?.trim() || (hasNoLocalSourceContext ? "No local sources were available for this answer." : "No citations attached to this answer.")}</strong>
+      <strong>{grounding?.notice?.trim() || fallbackNotice}</strong>
       <small>{grounding?.detail?.trim() || "FileChat is being explicit that this response has no retrieved source snippets."}</small>
       <SourceContextDetails unavailableFileIds={unavailableFileIds} files={files} includeUngroundedWarning />
     </div>

@@ -194,6 +194,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
             {"id": "compare_schemas", "label": "Compare worksheet schemas without key matching", "dependsOn": ["load_inputs"]},
             {"id": "export_outputs", "label": "Render schema report and CSV output", "dependsOn": ["compare_schemas"]},
         ]
+    dependency_graph = _dependency_graph(tables, key)
     manifest = {
         "title": "Spreadsheet Workflow Automator",
         "question": question,
@@ -206,6 +207,7 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         "manualStepsReplaced": manual_steps_replaced,
         "transforms": transforms,
         "runtimeStages": runtime_stages,
+        "dependencyGraph": dependency_graph,
         "outputs": outputs,
         "tables": [
             {
@@ -239,6 +241,15 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
         )
         + "</li>"
         for stage in runtime_stages
+    )
+    dependency_graph_items_html = "\n".join(
+        "      <li>"
+        + html_lib.escape(
+            f"{node['label']} [{node['kind']}]"
+            + (f" depends on {', '.join(node['dependsOn'])}" if node["dependsOn"] else "")
+        )
+        + "</li>"
+        for node in dependency_graph
     )
     interview_prompt_items_html = "\n".join(f"      <li>{html_lib.escape(prompt)}</li>" for prompt in interview_prompts)
     return f"""<!doctype html>
@@ -302,6 +313,10 @@ def build_excel_workflow_html_app(question: str, file_texts: list[dict[str, Any]
     <h3>Ordered local runtime stages</h3>
     <ol>
 {runtime_stage_items_html}
+    </ol>
+    <h3>Dependent file workflow graph</h3>
+    <ol>
+{dependency_graph_items_html}
     </ol>
     <h3>Workflow reconstruction interview</h3>
     <p>Use these prompts with the workflow owner before finalizing the generated app, so dependent copy/paste/edit steps become explicit deterministic rules.</p>
@@ -561,6 +576,35 @@ render();
 </body>
 </html>
 """
+
+
+def _dependency_graph(tables: list[WorkflowTable], key: str | None) -> list[dict[str, Any]]:
+    input_nodes = [
+        {"id": f"input_{index}", "label": _table_ref(table), "kind": "input", "dependsOn": []}
+        for index, table in enumerate(tables, start=1)
+    ]
+    input_ids = [node["id"] for node in input_nodes]
+    if key:
+        transform = {
+            "id": "match_shared_key",
+            "label": f"Match rows by {key}",
+            "kind": "transform",
+            "dependsOn": input_ids,
+        }
+    else:
+        transform = {
+            "id": "compare_schemas",
+            "label": "Compare worksheet schemas",
+            "kind": "transform",
+            "dependsOn": input_ids,
+        }
+    output = {
+        "id": "final_output",
+        "label": "reconciliation-output.csv",
+        "kind": "output",
+        "dependsOn": [transform["id"]],
+    }
+    return [*input_nodes, transform, output]
 
 
 def _workflow_interview_prompts(key: str | None) -> list[str]:

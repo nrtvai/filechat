@@ -729,6 +729,59 @@ describe("App", () => {
     expect(screen.getByText("Attach local documents before relying on FileChat for grounded document answers.")).toBeVisible();
   });
 
+  it("says no available local sources when every requested source is unavailable", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer arrived after its source was unavailable.");
+    answer.unavailable_file_ids = ["fil_missing"];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("This answer arrived after its source was unavailable.")).toBeVisible();
+    expect(screen.getByText("No available local sources supported this answer.")).toBeVisible();
+    expect(screen.getByText("Unavailable sources: fil_missing")).toBeVisible();
+    expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
+  });
+
+  it("says no available local sources when unavailable/failed records remain but none are ready", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer arrived after its local source failed.");
+    answer.unavailable_file_ids = ["fil_failed"];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_failed", "failed-report.pdf", "failed", "OCR failed")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("This answer arrived after its local source failed.")).toBeVisible();
+    expect(screen.getByText("No available local sources supported this answer.")).toBeVisible();
+    expect(screen.getByText("Failed source context: failed-report.pdf (OCR failed)")).toBeVisible();
+    expect(screen.getByText("Unavailable sources: failed-report.pdf")).toBeVisible();
+    expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
+  });
+
   it("shows processing source context when an uncited answer arrives before files are ready", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer arrived while the document was still indexing.");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1783,7 +1836,7 @@ describe("App", () => {
       .toBeInTheDocument();
   });
 
-  it("names unavailable files on source-less assistant answers", async () => {
+  it("names unavailable files and reports no available local sources on source-less assistant answers", async () => {
     const missing = file("fil_missing", "archived-notes.pdf", "failed", "File was detached before retrieval");
     const answer = {
       ...message("msg_answer", "ses_new", "assistant", "I could only answer from available context."),
@@ -1806,7 +1859,7 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("I could only answer from available context.")).toBeInTheDocument();
-    expect(screen.getByText("No citations attached to this answer.")).toBeInTheDocument();
+    expect(screen.getByText("No available local sources supported this answer.")).toBeInTheDocument();
     expect(screen.getByText("Unavailable sources: archived-notes.pdf, fil_deleted")).toBeInTheDocument();
   });
 
