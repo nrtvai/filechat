@@ -1134,7 +1134,41 @@ describe("App", () => {
     }));
   });
 
-  it("renders a pending assistant turn while a question is generating", async () => {
+  it("renders a pending assistant turn that says only ready sources are being read", async () => {
+    const askRequest = deferred<Response>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 2)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_report", "report.txt"),
+        file("fil_pending", "pending-notes.pdf", "indexing"),
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/runs") && init?.method === "POST") return askRequest.promise;
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const input = await screen.findByLabelText("Ask a question about the selected files");
+    await screen.findByText(/answers use ready sources only/);
+    fireEvent.change(input, { target: { value: "Summarize this file" } });
+    const sendButton = await enabledAskButton();
+    fireEvent.click(sendButton);
+
+    expect(await screen.findByText("Reading ready sources only...")).toBeInTheDocument();
+    expect(screen.queryByText("Reading the sources...")).not.toBeInTheDocument();
+
+    await act(async () => {
+      askRequest.resolve(Response.json(run("run_1", "completed", "Summarize this file", "msg_answer")));
+    });
+  });
+
+  it("keeps the standard pending assistant turn when every selected source is ready", async () => {
     const askRequest = deferred<Response>();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -1154,10 +1188,10 @@ describe("App", () => {
     const input = await screen.findByLabelText("Ask a question about the selected files");
     await screen.findByText(/1 ready source/);
     fireEvent.change(input, { target: { value: "Summarize this file" } });
-    const sendButton = await enabledAskButton();
-    fireEvent.click(sendButton);
+    fireEvent.click(await enabledAskButton());
 
     expect(await screen.findByText("Reading the sources...")).toBeInTheDocument();
+    expect(screen.queryByText("Reading ready sources only...")).not.toBeInTheDocument();
 
     await act(async () => {
       askRequest.resolve(Response.json(run("run_1", "completed", "Summarize this file", "msg_answer")));

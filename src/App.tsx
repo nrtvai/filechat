@@ -823,6 +823,8 @@ function Transcript(props: {
 
   const activeRun = props.runs.find((run) => ["queued", "running", "awaiting_approval", "awaiting_user_input"].includes(run.status));
   const waitingRun = props.runs.find((run) => run.status === "awaiting_user_input" && run.current_question);
+  const hasNonReadySources = props.files.some((file) => file.status !== "ready");
+  const pendingSourceLabel = hasNonReadySources ? "Reading ready sources only..." : "Reading the sources...";
 
   return (
     <section className="transcript">
@@ -882,7 +884,7 @@ function Transcript(props: {
             <div className="turn-label mono caps">FileChat</div>
             <div className="bubble pending-bubble">
               <Loader2 className="spin" size={15} />
-              <span>Reading the sources...</span>
+              <span>{pendingSourceLabel}</span>
             </div>
             {activeRun && <AgentActivity run={activeRun} compact />}
           </article>
