@@ -1191,6 +1191,11 @@ function Composer(props: {
       : props.files.length === 0
         ? "Attach a file to ask grounded questions · drafts stay local until a source is ready"
         : "No ready sources yet · you can draft while files process";
+  const askDisabledReason = ready === 0
+    ? "Attach a ready local source before asking; your draft will stay local."
+    : props.busy
+      ? "FileChat is still reading the sources for the current request."
+      : undefined;
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Some older WebKit IME paths report keyCode 229 instead of reliably setting isComposing.
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -1234,7 +1239,7 @@ function Composer(props: {
             <input ref={inputRef} className="hidden" type="file" aria-label="Attach files to chat" multiple accept={acceptedTypes} disabled={props.busy} onChange={(event) => handleFileInputChange(event, props.upload!)} />
           </>
         )}
-        <button className="send-btn" disabled={props.disabled || !props.value.trim()} type="submit">
+        <button className="send-btn" disabled={props.disabled || !props.value.trim()} title={(props.disabled || !props.value.trim()) ? askDisabledReason : undefined} type="submit">
           {props.busy ? <Loader2 className="spin" size={15} /> : <Send size={15} />} Ask
         </button>
       </div>

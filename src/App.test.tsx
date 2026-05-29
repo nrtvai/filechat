@@ -483,6 +483,9 @@ describe("App", () => {
     expect(await screen.findByText("Attach files")).toBeInTheDocument();
     const input = await screen.findByLabelText("Ask a question about the selected files");
     expect(input).toBeVisible();
+    const disabledAskButton = screen.getByRole("button", { name: /ask/i });
+    expect(disabledAskButton).toBeDisabled();
+    expect(disabledAskButton).toHaveAttribute("title", "Attach a ready local source before asking; your draft will stay local.");
     expect(screen.getByText("Attach a file to ask grounded questions · drafts stay local until a source is ready")).toBeVisible();
 
     fireEvent.change(input, { target: { value: "I can draft before attaching" } });

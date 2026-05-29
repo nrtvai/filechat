@@ -126,6 +126,63 @@ def test_reconcile_uses_raw_csv_physical_source_rows_with_blank_lines():
     assert "25 at actuals.csv / actuals row 3" not in result["answer"]
 
 
+def test_reconcile_matches_common_columns_case_insensitively_across_spreadsheets():
+    forecast_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: forecast.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: forecast\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: SKU, Qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "SKU,Qty\n"
+        "A1,10\n"
+        "```\n"
+    )
+    actuals_summary = (
+        "# Excel Mode Spreadsheet Summary\n\n"
+        "Workbook: actuals.csv\n"
+        "Mode: Excel / spreadsheet analysis lane\n\n"
+        "## Worksheet: actuals\n"
+        "Rows: 1\n"
+        "Columns: 2\n"
+        "Headers: sku, qty\n\n"
+        "## Raw Data (CSV)\n"
+        "```csv\n"
+        "sku,qty\n"
+        "A1,12\n"
+        "```\n"
+    )
+
+    result = build_excel_workflow_answer(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+    html = build_excel_workflow_html_app(
+        "compare these spreadsheets",
+        [
+            {"file_id": "forecast", "file_name": "forecast.csv", "text": forecast_summary},
+            {"file_id": "actuals", "file_name": "actuals.csv", "text": actuals_summary},
+        ],
+        [],
+    )
+
+    assert result is not None
+    assert result["evidence"]["mode"] == "reconcile"
+    assert result["evidence"]["key"] == "SKU"
+    assert "A1` differs" in result["answer"]
+    assert "12 at actuals.csv / actuals row 2" in result["answer"]
+    assert html is not None
+    assert '"sharedKey":"SKU"' in html
+    assert '"columns":["SKU","Qty"]' in html
+
+
 def test_reconcile_reports_each_parsed_table_row_count_in_scope():
     forecast_summary = (
         "# Excel Mode Spreadsheet Summary\n\n"

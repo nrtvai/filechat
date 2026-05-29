@@ -644,7 +644,44 @@ def _workflow_tables(file_texts: list[dict[str, Any]], sources: list[dict[str, A
         for table in extracted:
             table.source_id = by_file_source.get(table.file_id)
             tables.append(table)
+    _normalize_common_columns_case_insensitively(tables)
     return tables
+
+
+def _normalize_common_columns_case_insensitively(tables: list[WorkflowTable]) -> None:
+    """Canonicalize shared columns whose names differ only by case.
+
+    Users often upload dependent spreadsheets with headers like `SKU` in one
+    file and `sku` in another. The workflow runtime should still detect the
+    shared key and comparable columns while preserving the first table's header
+    casing in generated reports/apps.
+    """
+
+    if len(tables) < 2:
+        return
+    per_table_lower_to_column: list[dict[str, str]] = []
+    for table in tables:
+        lower_to_columns: dict[str, list[str]] = {}
+        for column in table.columns:
+            lower_to_columns.setdefault(column.lower(), []).append(column)
+        # Only normalize unambiguous headers. If a single sheet has both `SKU`
+        # and `sku`, leave that lower-case key alone rather than guessing.
+        per_table_lower_to_column.append(
+            {lower: columns[0] for lower, columns in lower_to_columns.items() if len(columns) == 1}
+        )
+    common_lower_columns = set(per_table_lower_to_column[0])
+    for lower_to_column in per_table_lower_to_column[1:]:
+        common_lower_columns &= set(lower_to_column)
+    for lower_column in common_lower_columns:
+        canonical = per_table_lower_to_column[0][lower_column]
+        for table, lower_to_column in zip(tables, per_table_lower_to_column):
+            current = lower_to_column[lower_column]
+            if current == canonical:
+                continue
+            table.columns = [canonical if column == current else column for column in table.columns]
+            for row in table.rows:
+                if current in row and canonical not in row:
+                    row[canonical] = row.pop(current)
 
 
 def _tables_from_excel_summary(text: str, file_id: str, file_name: str) -> list[WorkflowTable]:
