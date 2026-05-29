@@ -68,6 +68,10 @@ export function validateLocalHtmlWorkflowApp(app: LocalHtmlWorkflowApp): Workflo
     errors.push("workflow.inputs must list at least one concrete spreadsheet file such as .csv, .tsv, .xls, or .xlsx");
   }
 
+  if (!hasUniqueWorkflowInputs(app.workflow.inputs)) {
+    errors.push("workflow.inputs must not repeat the same spreadsheet file name");
+  }
+
   if (!hasConcreteSpreadsheetStep(app.workflow.manualStepsReplaced)) {
     errors.push("workflow.manualStepsReplaced must list at least one copy/paste/edit step being automated");
   }
@@ -418,6 +422,11 @@ function usesNetworkApi(html: string) {
 
 function hasConcreteSpreadsheetInput(inputs: string[]) {
   return inputs.some((input) => /\.(?:csv|tsv|xlsx?|xlsm)\b/i.test(input));
+}
+
+function hasUniqueWorkflowInputs(inputs: string[]) {
+  const normalizedInputs = inputs.map((input) => input.trim().toLowerCase());
+  return normalizedInputs.length === new Set(normalizedInputs).size;
 }
 
 function hasConcreteSpreadsheetStep(steps: string[]) {

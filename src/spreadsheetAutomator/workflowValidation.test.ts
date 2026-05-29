@@ -548,6 +548,22 @@ describe("validateLocalHtmlWorkflowApp", () => {
     expect(result.errors).toContain("workflow.inputs must list at least one concrete spreadsheet file such as .csv, .tsv, .xls, or .xlsx");
   });
 
+  it("rejects duplicate workflow input file names because each upload slot must map to one source file", () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Weekly inventory reorder builder",
+      workflow: {
+        inputs: ["sales_orders.csv", "sales_orders.csv", "warehouse_stock_units.csv"],
+        manualStepsReplaced: ["copy weekly sales rows into the reorder sheet"],
+        transforms: [{ id: "calculate", description: "Calculate reorder output", deterministic: true }],
+      },
+    });
+
+    expect(validateLocalHtmlWorkflowApp(app)).toEqual({
+      ok: false,
+      errors: ["workflow.inputs must not repeat the same spreadsheet file name"],
+    });
+  });
+
   it.each([
     ["fetch", "async function runWorkflow(input){ return fetch('https://api.example.test/transform', { method: 'POST', body: input }); }"],
     ["XMLHttpRequest", "function runWorkflow(){ const request = new XMLHttpRequest(); request.open('GET', 'https://api.example.test/transform'); return request; }"],
