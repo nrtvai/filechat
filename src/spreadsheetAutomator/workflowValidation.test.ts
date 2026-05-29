@@ -139,7 +139,7 @@ describe("generateLocalHtmlWorkflowApp", () => {
     });
 
     const csv = runGeneratedWorkflowCsv(app.html, {
-      '=HYPERLINK("https://evil.test","x").csv': "=cmd|' /C calc'!A0,amount\n123,10",
+      '=HYPERLINK("https://evil.test","x").csv': "sku,amount\n=cmd|' /C calc'!A0,10",
       "safe.csv": "sku,qty\nA-1,4",
     });
 
@@ -161,7 +161,7 @@ describe("generateLocalHtmlWorkflowApp", () => {
     });
 
     const csv = runGeneratedWorkflowCsv(app.html, {
-      "orders.csv": "  =cmd|' /C calc'!A0,amount\n123,10",
+      "orders.csv": "sku,amount\n  =cmd|' /C calc'!A0,10",
       "safe.csv": "sku,qty\nA-1,4",
     });
 
@@ -224,6 +224,8 @@ describe("generateLocalHtmlWorkflowApp", () => {
     );
     expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,0,orders.csv,3,2,");
     expect(csvA).toContain("reconciliation-output.csv,orders.csv|stock.tsv,1,1,0,stock.tsv,2,2,");
+    expect(csvA).toContain("A-1|2");
+    expect(csvA).toContain("A-1|8");
   });
 
   it("summarizes binary spreadsheet inputs as opaque local content instead of delimited rows", () => {

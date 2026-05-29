@@ -1285,10 +1285,13 @@ function RightPanel(props: {
   return (
     <aside className="right-panel">
       <div className="tabs">
-        {(["files", "citations", "artifacts", "runs", "settings"] as const).map((tab) => (
+        {(["files", "citations", "artifacts", "runs"] as const).map((tab) => (
           <button key={tab} className={props.tab === tab ? "on" : ""} onClick={() => props.setTab(tab)}>{tab}</button>
         ))}
-        {props.currentUser?.capabilities.use_admin_console && (
+        {props.tab !== "citations" && (
+          <button className={props.tab === "settings" ? "on" : ""} onClick={() => props.setTab("settings")}>settings</button>
+        )}
+        {props.currentUser?.capabilities.use_admin_console && props.tab !== "citations" && (
           <button className={props.tab === "admin" ? "on" : ""} onClick={() => props.setTab("admin")}>admin</button>
         )}
         <button className="icon-btn" onClick={() => props.setOpen(false)} aria-label="Close right panel"><X size={13} /></button>

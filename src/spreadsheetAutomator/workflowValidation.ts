@@ -235,11 +235,14 @@ ${dependencySection}  <h2>Outputs</h2>
       const lines = normalizedText.length === 0 ? [] : normalizedText.replace(/\\n$/, '').split('\\n');
       const delimiter = /\\.tsv$/i.test(inputName) || (lines[0] || '').indexOf('\\t') !== -1 ? '\\t' : ',';
       const headerCells = lines.length === 0 ? [] : splitDelimitedLine(lines[0], delimiter);
+      const firstDataLine = lines.slice(1).find(line => line.trim().length > 0);
+      const dataPreviewCells = firstDataLine ? splitDelimitedLine(firstDataLine, delimiter) : headerCells;
+      const dataPreview = dataPreviewCells.join('|');
       return {
         rowCount: lines.length,
         columnCount: headerCells.length,
         checksum: lightweightChecksum(normalizedText),
-        preview: lines.length === 0 ? '' : splitDelimitedLine(lines[0], delimiter)[0]
+        preview: dataPreview
       };
     }
 
@@ -280,9 +283,13 @@ ${dependencySection}  <h2>Outputs</h2>
       return hash.toString(16).padStart(8, '0');
     }
 
+    function isFormulaLikeCsvCell(value) {
+      return /^[\\u0000-\\u0020]*[=+@-]/.test(String(value));
+    }
+
     function toCsvCell(value) {
       const text = String(value);
-      const safeText = /^[\\u0000-\\u0020]*[=+@-]/.test(text) ? "'" + text : text;
+      const safeText = isFormulaLikeCsvCell(text) ? "'" + text : text;
       return /[",\\n]/.test(safeText) ? '"' + safeText.replace(/"/g, '""') + '"' : safeText;
     }
 

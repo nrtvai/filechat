@@ -223,7 +223,12 @@ async function openRightPanelTab(name: string) {
     return;
   }
   fireEvent.click(await screen.findByRole("button", { name: "Sources" }));
-  fireEvent.click(await screen.findByRole("button", { name }));
+  let targetTab = screen.queryByRole("button", { name });
+  if (!targetTab && (name === "settings" || name === "admin")) {
+    fireEvent.click(await screen.findByRole("button", { name: "files" }));
+    targetTab = await screen.findByRole("button", { name });
+  }
+  fireEvent.click(targetTab ?? await screen.findByRole("button", { name }));
 }
 
 function fileListOf(files: File[]): FileList {
@@ -321,6 +326,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sources" }));
     expect(await screen.findByText("No citations yet.")).toBeVisible();
     expect(screen.getByText("Cited source snippets will appear here after grounded answers; if no local source supports an answer, FileChat will say so.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "settings" })).not.toBeInTheDocument();
   });
 
   it("filters the left-rail session list by title", async () => {
