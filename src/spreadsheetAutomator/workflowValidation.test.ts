@@ -296,6 +296,52 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(clickSpy).not.toHaveBeenCalled();
   });
 
+  it("previews the deterministic final CSV locally without triggering a download", async () => {
+    const app = generateLocalHtmlWorkflowApp({
+      title: "Preview workflow",
+      workflow: {
+        inputs: ["orders.csv"],
+        manualStepsReplaced: ["copy rows into final workbook"],
+        transforms: [{ id: "copy-safe", description: "Copy rows deterministically", deterministic: true }],
+      },
+    });
+    const status = { textContent: "" };
+    const outputPreview = { textContent: "" };
+    const fileInput = {
+      files: [{ name: "orders.csv", text: vi.fn().mockResolvedValue("sku,qty\nA-1,2") }],
+      addEventListener: vi.fn(),
+    };
+    const blobSpy = vi.fn();
+    const clickSpy = vi.fn();
+
+    expect(app.html).toContain("Preview final output CSV");
+    expect(app.html).toContain("function previewFinalOutputCsv()");
+    vi.stubGlobal("window", { CSS: { escape: (value: string) => value } });
+    vi.stubGlobal("document", {
+      querySelector: vi.fn((selector: string) => (selector.includes('data-workflow-input=\"orders.csv\"') ? fileInput : null)),
+      querySelectorAll: vi.fn(() => [fileInput]),
+      getElementById: vi.fn((id: string) => (id === "output-preview" ? outputPreview : status)),
+      createElement: vi.fn(() => ({ click: clickSpy })),
+    });
+    vi.stubGlobal("Blob", blobSpy);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:csv"),
+      revokeObjectURL: vi.fn(),
+    });
+    const previewFinalOutputCsv = getGeneratedWorkflowFunction<() => Promise<void>>(
+      app.html,
+      "previewFinalOutputCsv",
+    );
+
+    await previewFinalOutputCsv();
+
+    expect(outputPreview.textContent).toContain("output_file,required_input_files");
+    expect(outputPreview.textContent).toContain("reconciliation-output.csv,orders.csv,1,1,0,orders.csv,2,2,");
+    expect(status.textContent).toBe("Previewed reconciliation-output.csv locally from selected input file contents.");
+    expect(blobSpy).not.toHaveBeenCalled();
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
   it("blocks the final output download when a selected local file name does not match the required spreadsheet input", async () => {
     const app = generateLocalHtmlWorkflowApp({
       title: "Wrong file guard workflow",

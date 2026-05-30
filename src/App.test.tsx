@@ -629,6 +629,35 @@ describe("App", () => {
     expect(screen.getByText("Unavailable sources: notes.pdf")).toBeVisible();
   });
 
+  it("deduplicates unavailable source names in grounded-honesty notices", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer cites one local snippet.");
+    answer.citations = [citation("cit_1")];
+    answer.unavailable_file_ids = ["fil_notes", "fil_notes"];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({ citation_display: "minimized" });
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 2));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 2)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([
+        file("fil_report", "report.txt"),
+        file("fil_notes", "notes.pdf", "failed", "OCR failed")
+      ]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("Sources · 1 · report.txt")).toBeVisible();
+    expect(screen.getByText("Unavailable sources: notes.pdf")).toBeVisible();
+    expect(screen.queryByText("Unavailable sources: notes.pdf, notes.pdf")).not.toBeInTheDocument();
+  });
+
   it("warns when citations point at sources that are not ready in the current chat", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer cites a source that is not in ready context.");
     answer.citations = [

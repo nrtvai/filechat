@@ -163,8 +163,11 @@ ${dependencySection}  <h2>Outputs</h2>
   <p>This manifest preserves the interviewed dependent-file workflow, replaced manual spreadsheet steps, deterministic transforms, and generated outputs inside this single local app.</p>
   <pre>${workflowContractHtml}</pre>
   <script type="application/json" id="workflow-contract">${workflowJson}</script>
+  <button type="button" onclick="previewFinalOutputCsv()">Preview final output CSV</button>
   <button type="button" onclick="downloadFinalOutputCsv()">Download final output CSV</button>
   <pre id="status">${escapeHtml(initialStatus)}</pre>
+  <h2>Final output preview</h2>
+  <pre id="output-preview">Select all required input files, then preview or download reconciliation-output.csv.</pre>
   <script>
     const workflow = ${workflowJson};
 
@@ -317,6 +320,27 @@ ${dependencySection}  <h2>Outputs</h2>
         texts[entry[0]] = entry[1];
         return texts;
       }, {});
+    }
+
+    async function previewFinalOutputCsv() {
+      const missing = getMissingWorkflowInputs();
+      if (missing.length > 0) {
+        document.getElementById('status').textContent = 'Select all required input files before previewing: ' + missing.join(', ');
+        return;
+      }
+      const mismatched = getMismatchedWorkflowInputFiles();
+      if (mismatched.length > 0) {
+        document.getElementById('status').textContent = 'Select the exact required input file names before previewing: ' + mismatched.join(', ');
+        return;
+      }
+      try {
+        const inputFileTexts = await getSelectedInputFileTexts();
+        document.getElementById('output-preview').textContent = buildFinalOutputCsv(inputFileTexts);
+        document.getElementById('status').textContent = 'Previewed reconciliation-output.csv locally from selected input file contents.';
+      } catch (error) {
+        const message = error && error.message ? error.message : 'Could not preview reconciliation-output.csv from the selected input files.';
+        document.getElementById('status').textContent = message;
+      }
     }
 
     async function downloadFinalOutputCsv() {

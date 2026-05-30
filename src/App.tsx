@@ -912,8 +912,16 @@ function visibleArtifacts(message: Message, profile: ContextProfile) {
   return message.artifacts.filter((artifact) => (artifact.display_mode ?? "primary") === "primary");
 }
 
+function uniqueLabels(labels: string[]) {
+  return Array.from(new Set(labels));
+}
+
+function unavailableSourceLabels(unavailableFileIds: string[], files: FileRecord[]) {
+  return uniqueLabels(unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId));
+}
+
 function SourceContextDetails({ unavailableFileIds = [], files = [], includeUngroundedWarning = false }: { unavailableFileIds?: string[]; files?: FileRecord[]; includeUngroundedWarning?: boolean }) {
-  const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
+  const unavailableLabels = unavailableSourceLabels(unavailableFileIds, files);
   const readyLabels = files.filter((file) => file.status === "ready").map((file) => file.name);
   const processingLabels = files
     .filter((file) => ["queued", "reading", "indexing"].includes(file.status))
@@ -953,7 +961,7 @@ function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { 
 }
 
 function UnavailableSourceNotice({ unavailableFileIds = [], files = [] }: { unavailableFileIds?: string[]; files?: FileRecord[] }) {
-  const unavailableLabels = unavailableFileIds.map((fileId) => files.find((file) => file.id === fileId)?.name ?? fileId);
+  const unavailableLabels = unavailableSourceLabels(unavailableFileIds, files);
   if (unavailableLabels.length === 0) return null;
   return (
     <div className="source-strip no-citations" role="status" aria-live="polite" aria-label="Some sources unavailable">
