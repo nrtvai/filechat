@@ -54,6 +54,7 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).toContain("Select all required input files before downloading: ");
     expect(app.html).toContain("Cannot generate final output until required input files are selected.");
     expect(app.html).toContain("Download final output CSV");
+    expect(app.html).toContain("Runs entirely in this browser; selected spreadsheet files stay on this computer and are not uploaded.");
     expect(app.html).toContain("new Blob");
     expect(app.html).toContain("text/csv");
     expect(app.html).toContain("a.download = 'reconciliation-output.csv'");

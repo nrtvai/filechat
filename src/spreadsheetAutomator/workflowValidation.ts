@@ -145,6 +145,7 @@ function buildLocalWorkflowHtml(title: string, workflow: LocalHtmlWorkflowApp["w
 <body>
   <h1>${escapeHtml(title)}</h1>
   <p>This local workflow app documents the deterministic spreadsheet automation contract and downloads the final CSV output.</p>
+  <p><strong>Local/offline:</strong> Runs entirely in this browser; selected spreadsheet files stay on this computer and are not uploaded.</p>
   <h2>Inputs</h2>
   <ul>${inputItems}</ul>
   <form id="input-files">
