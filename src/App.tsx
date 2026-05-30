@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useLayou
 import { FileText, KeyRound, Library, Loader2, MessageSquarePlus, PanelLeft, Paperclip, Search, Send, Settings as SettingsIcon, ShieldCheck, X } from "lucide-react";
 import { api } from "./api";
 import { ArtifactRenderer } from "./artifacts";
+import { SpreadsheetWorkflowAutomatorApp } from "./spreadsheetAutomator/SpreadsheetWorkflowAutomatorApp";
 import type { AgentRun, AgentRunAction, AgentRunQuestion, Artifact, Citation, ContextProfile, CurrentUser, Edition, FileRecord, MembershipRole, Message, ModelInfo, Session, Settings, UsageSummary } from "./types";
 
 const acceptedTypes = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif";
@@ -103,6 +104,10 @@ function localTestModeUser(): CurrentUser {
 }
 
 export function App() {
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/workflows")) {
+    return <SpreadsheetWorkflowAutomatorApp />;
+  }
+
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [files, setFiles] = useState<FileRecord[]>([]);
