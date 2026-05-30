@@ -513,10 +513,22 @@ function canonicalizeImportedColumns(parsed, table) {{
   }});
   return parsed;
 }}
+function validateImportedCsv(parsed, table) {{
+  const seen = new Map();
+  for (const column of parsed.columns) {{
+    const header = String(column || '').trim();
+    const tableRef = `${{table.fileName}} / ${{table.sheetName}}`;
+    if (!header) throw new Error(`Imported CSV for ${{tableRef}} has a blank column header. Every imported column must have a unique header before the local workflow can reconcile rows.`);
+    const lower = header.toLowerCase();
+    if (seen.has(lower)) throw new Error(`Imported CSV for ${{tableRef}} has duplicate column header "${{header}}". Rename or remove duplicate columns before import so row values map deterministically.`);
+    seen.set(lower, header);
+  }}
+}}
 function replaceTableFromCsv(workflow, tableIndex, csvText) {{
   const parsed = parseCsvText(csvText);
   const table = workflow.tables[tableIndex];
   if (!table) throw new Error(`No workflow table at index ${{tableIndex}}`);
+  validateImportedCsv(parsed, table);
   canonicalizeImportedColumns(parsed, table);
   if (workflow.sharedKey && !parsed.columns.includes(workflow.sharedKey)) throw new Error(`Imported CSV for ${{table.fileName}} / ${{table.sheetName}} must include shared key column "${{workflow.sharedKey}}". Keep the key column header unchanged so rows can be reconciled.`);
   table.columns = parsed.columns;

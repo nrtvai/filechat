@@ -946,9 +946,10 @@ function NoCitationNotice({ unavailableFileIds = [], files = [], grounding }: { 
   const hasReadyLocalSources = files.some((file) => file.status === "ready");
   const hasNoLocalSourceContext = files.length === 0 && unavailableFileIds.length === 0;
   const hasOnlyUnavailableSources = !hasReadyLocalSources && unavailableFileIds.length > 0;
+  const hasOnlyFailedLocalSources = !hasReadyLocalSources && files.length > 0 && files.every((file) => file.status === "failed");
   const fallbackNotice = hasNoLocalSourceContext
     ? "No local sources were available for this answer."
-    : hasOnlyUnavailableSources
+    : hasOnlyUnavailableSources || hasOnlyFailedLocalSources
       ? "No available local sources supported this answer."
       : "No citations attached to this answer.";
   return (

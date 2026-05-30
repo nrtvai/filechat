@@ -820,6 +820,31 @@ describe("App", () => {
     expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
   });
 
+  it("says no available local sources when an uncited answer only has failed source records", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "This answer arrived after indexing failed.");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new", "New reading session", 1));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new", "New reading session", 1)]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([file("fil_failed", "failed-report.pdf", "failed", "OCR failed")]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("This answer arrived after indexing failed.")).toBeVisible();
+    expect(screen.getByText("No available local sources supported this answer.")).toBeVisible();
+    expect(screen.getByText("Failed source context: failed-report.pdf (OCR failed)")).toBeVisible();
+    expect(screen.queryByText("No citations attached to this answer.")).not.toBeInTheDocument();
+  });
+
   it("shows processing source context when an uncited answer arrives before files are ready", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "This answer arrived while the document was still indexing.");
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
