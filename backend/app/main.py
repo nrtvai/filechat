@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .audit import record_audit_event
 from .agent_runs import (
@@ -27,6 +29,7 @@ from .auth import Principal, current_principal, require_log_exporter, require_se
 from .bot_integrations import slack_attachments, telegram_attachments, verify_slack_signature, verify_telegram_secret
 from .config import get_settings
 from .database import connect, init_db
+from .excel_workflow import build_excel_workflow_html_app, is_excel_workflow_request
 from .ingest import process_file
 from .models import (
     AgentRunEventOut,
@@ -113,6 +116,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class WorkflowFileText(BaseModel):
+    file_id: str | None = None
+    file_name: str
+    text: str
+
+
+class WorkflowRequest(BaseModel):
+    description: str = Field(min_length=1)
+    file_texts: list[WorkflowFileText] = Field(default_factory=list)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def spreadsheet_workflow_questions(request: WorkflowRequest) -> list[str]:
+    questions: list[str] = []
+    description = request.description.lower()
+
+    if len(request.file_texts) < 2:
+        questions.append("Which source spreadsheet files are required for this recurring workflow?")
+    if not any(word in description for word in ("copy", "paste", "edit", "manual", "reconcile", "join", "match")):
+        questions.append("Which manual copy/paste/edit steps should be replaced with deterministic automation?")
+    if not any(word in description for word in ("key", "sku", "match", "join", "reconcile", "reconciliation")):
+        questions.append("What matching key, row rule, or column relationship connects the dependent spreadsheets?")
+    if not is_excel_workflow_request(request.description):
+        questions.append("What final local HTML spreadsheet workflow app should be generated?")
+
+    return questions
+
+
+def workflow_interview_payload(request: WorkflowRequest) -> dict[str, Any]:
+    questions = spreadsheet_workflow_questions(request)
+    return {
+        "status": "needs_interview" if questions else "ready_to_generate",
+        "ready_to_generate": not questions,
+        "required_questions": questions,
+    }
 
 
 @app.exception_handler(Exception)
@@ -391,6 +431,40 @@ def message_out(row) -> MessageOut:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/workflows/interview")
+def interview_spreadsheet_workflow(request: WorkflowRequest) -> dict[str, Any]:
+    return workflow_interview_payload(request)
+
+
+@app.post("/api/workflows/generate")
+def generate_spreadsheet_workflow(request: WorkflowRequest) -> dict[str, Any]:
+    interview = workflow_interview_payload(request)
+    if not interview["ready_to_generate"]:
+        return interview
+
+    html = build_excel_workflow_html_app(
+        request.description,
+        [item.model_dump() for item in request.file_texts],
+        request.sources,
+    )
+    if html is None:
+        return {
+            "status": "needs_interview",
+            "ready_to_generate": False,
+            "required_questions": [
+                "Which concrete spreadsheet source files, matching rules, and manual copy/paste/edit steps should be automated?",
+            ],
+        }
+
+    return {
+        "status": "generated",
+        "ready_to_generate": True,
+        "filename": "spreadsheet-workflow-automator.html",
+        "content_type": "text/html",
+        "html": html,
+    }
 
 
 @app.get("/api/me", response_model=CurrentUserOut)
