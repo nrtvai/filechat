@@ -20,7 +20,7 @@ function parseSourceFileTexts(sourceJson: string): WorkflowFileText[] {
   if (!sourceJson.trim()) return [];
   const parsed = JSON.parse(sourceJson) as unknown;
   if (!Array.isArray(parsed)) throw new Error("Source file summaries JSON must be an array.");
-  return parsed.map((item, index) => {
+  const fileTexts = parsed.map((item, index) => {
     if (!item || typeof item !== "object") throw new Error(`Source summary ${index + 1} must be an object.`);
     const candidate = item as Partial<WorkflowFileText>;
     if (typeof candidate.file_name !== "string" || typeof candidate.text !== "string") {
@@ -32,6 +32,11 @@ function parseSourceFileTexts(sourceJson: string): WorkflowFileText[] {
       text: candidate.text,
     };
   });
+  const uniqueFileNames = new Set(fileTexts.map((item) => item.file_name.trim().toLowerCase()));
+  if (uniqueFileNames.size !== fileTexts.length) {
+    throw new Error("Source file summaries must use unique file_name values.");
+  }
+  return fileTexts;
 }
 
 export function SpreadsheetWorkflowAutomatorApp() {
