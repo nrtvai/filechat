@@ -876,6 +876,29 @@ describe("App", () => {
     expect(screen.queryByText("Grounded in 1 local source snippet: report.txt")).not.toBeInTheDocument();
   });
 
+  it("tells users to attach local documents when a blank assistant answer has no source context", async () => {
+    const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/me")) return Response.json(currentUser);
+      if (url.endsWith("/api/settings")) return Response.json(settings);
+      if (url.endsWith("/api/context/profile")) return Response.json({});
+      if (url.endsWith("/api/sessions") && init?.method === "POST") return Response.json(session("ses_new"));
+      if (url.endsWith("/api/sessions")) return Response.json([session("ses_new")]);
+      if (url.endsWith("/api/sessions/ses_new/files")) return Response.json([]);
+      if (url.endsWith("/api/sessions/ses_new/messages")) return Response.json([answer]);
+      if (url.endsWith("/api/sessions/ses_new/usage")) return Response.json({});
+      if (url.endsWith("/api/sessions/ses_new/runs")) return Response.json([]);
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByText("No answer was generated.")).toBeVisible();
+    expect(screen.getByText("Attach local documents before relying on FileChat for grounded document answers.")).toBeVisible();
+  });
+
   it("shows backend grounding detail and source context in the honest no-answer state when an assistant message is blank", async () => {
     const answer = message("msg_answer", "ses_new", "assistant", "   \n  ");
     answer.grounding = {

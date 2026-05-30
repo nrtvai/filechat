@@ -487,10 +487,37 @@ function parseCsvText(text) {{
   }}).filter(item => Object.values(item.record).some(value => value !== ''));
   return {{ columns, rows: recordsWithSourceRows.map(item => item.record), sourceRows: recordsWithSourceRows.map(item => item.sourceRow) }};
 }}
+function canonicalizeImportedColumns(parsed, table) {{
+  const existingByLower = new Map();
+  (table.columns || []).forEach(column => {{
+    const lower = String(column || '').toLowerCase();
+    existingByLower.set(lower, existingByLower.has(lower) ? null : column);
+  }});
+  const importedByLower = new Map();
+  parsed.columns.forEach(column => {{
+    const lower = String(column || '').toLowerCase();
+    importedByLower.set(lower, importedByLower.has(lower) ? null : column);
+  }});
+  const rename = new Map();
+  parsed.columns.forEach(column => {{
+    const lower = String(column || '').toLowerCase();
+    const canonical = existingByLower.get(lower);
+    if (canonical && importedByLower.get(lower) && canonical !== column) rename.set(column, canonical);
+  }});
+  if (!rename.size) return parsed;
+  parsed.columns = parsed.columns.map(column => rename.get(column) || column);
+  parsed.rows = parsed.rows.map(row => {{
+    const next = {{}};
+    Object.entries(row).forEach(([column, value]) => {{ next[rename.get(column) || column] = value; }});
+    return next;
+  }});
+  return parsed;
+}}
 function replaceTableFromCsv(workflow, tableIndex, csvText) {{
   const parsed = parseCsvText(csvText);
   const table = workflow.tables[tableIndex];
   if (!table) throw new Error(`No workflow table at index ${{tableIndex}}`);
+  canonicalizeImportedColumns(parsed, table);
   if (workflow.sharedKey && !parsed.columns.includes(workflow.sharedKey)) throw new Error(`Imported CSV for ${{table.fileName}} / ${{table.sheetName}} must include shared key column "${{workflow.sharedKey}}". Keep the key column header unchanged so rows can be reconciled.`);
   table.columns = parsed.columns;
   table.rows = parsed.rows;

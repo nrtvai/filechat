@@ -990,7 +990,7 @@ function NoAnswerNotice({ unavailableFileIds = [], files = [], grounding }: { un
     <div className="source-strip no-citations no-answer" role="status" aria-live="polite" aria-label="No answer generated">
       <strong>{notice}</strong>
       <small>{detail}</small>
-      <SourceContextDetails unavailableFileIds={unavailableFileIds} files={files} />
+      <SourceContextDetails unavailableFileIds={unavailableFileIds} files={files} includeUngroundedWarning />
     </div>
   );
 }
