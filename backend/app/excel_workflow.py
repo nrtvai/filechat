@@ -587,7 +587,23 @@ function render() {{
   }});
 }}
 document.getElementById('run').addEventListener('click', () => {{
-  document.querySelectorAll('textarea[data-table]').forEach(area => {{ window.__WORKFLOW__.tables[Number(area.dataset.table)].rows = JSON.parse(area.value); }});
+  const parsedEdits = [];
+  const errors = [];
+  document.querySelectorAll('textarea[data-table]').forEach(area => {{
+    const tableIndex = Number(area.dataset.table);
+    const table = window.__WORKFLOW__.tables[tableIndex];
+    const tableRef = table ? `${{table.fileName}} / ${{table.sheetName}}` : `table ${{tableIndex}}`;
+    try {{
+      parsedEdits.push([tableIndex, JSON.parse(area.value)]);
+    }} catch (error) {{
+      errors.push(`${{tableRef}}: ${{error && error.message ? error.message : String(error)}}`);
+    }}
+  }});
+  if (errors.length) {{
+    document.getElementById('report').textContent = 'JSON edit failed:\\n' + errors.map(error => `- ${{error}}`).join('\\n') + '\\n\\nFix the JSON rows above, or use Reset to embedded data before re-running.';
+    return;
+  }}
+  parsedEdits.forEach(([tableIndex, rows]) => {{ window.__WORKFLOW__.tables[tableIndex].rows = rows; }});
   document.getElementById('report').textContent = compareWorkflow(window.__WORKFLOW__);
 }});
 document.getElementById('import-csv').addEventListener('click', () => {{

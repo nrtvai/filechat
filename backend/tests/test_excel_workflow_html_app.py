@@ -70,6 +70,78 @@ def test_local_html_app_embeds_dependent_file_workflow_graph() -> None:
     ]
 
 
+def test_local_html_runtime_reports_invalid_json_edits_without_crashing() -> None:
+    html = build_excel_workflow_html_app(
+        "Compare these spreadsheets and generate a local HTML app",
+        [
+            {
+                "file_id": "forecast",
+                "file_name": "forecast.csv",
+                "text": _workflow_summary("forecast.csv", "forecast", "SKU,Qty\nA1,10\n"),
+            },
+            {
+                "file_id": "actuals",
+                "file_name": "actuals.csv",
+                "text": _workflow_summary("actuals.csv", "actuals", "SKU,Qty\nA1,10\n"),
+            },
+        ],
+        [],
+    )
+
+    assert html is not None
+    assert "JSON edit failed" in html
+    script = re.search(r"<script>([\s\S]*)</script>", html)
+    assert script is not None
+
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_path = Path(temp_dir) / "workflow-runtime-invalid-json.js"
+        runtime_path.write_text(
+            """
+const assert = require('node:assert');
+const elements = new Map();
+const jsonAreas = [];
+const handlers = {};
+function element(id) {
+  return {
+    id,
+    textContent: '',
+    value: '[]',
+    dataset: {},
+    append(...children) { children.forEach(child => { if (child.dataset && child.dataset.table != null) jsonAreas.push(child); }); },
+    addEventListener(event, handler) { handlers[id + ':' + event] = handler; },
+    click() {},
+    remove() {},
+  };
+}
+global.window = {};
+global.document = {
+  getElementById(id) { if (!elements.has(id)) elements.set(id, element(id)); return elements.get(id); },
+  querySelectorAll(selector) { return selector === 'textarea[data-table]' ? jsonAreas : []; },
+  createElement(tag) { return element(tag); },
+  body: { appendChild() {} },
+};
+global.URL = { createObjectURL() { return 'blob:local'; }, revokeObjectURL() {} };
+global.Blob = class Blob { constructor(parts, options) { this.parts = parts; this.options = options; } };
+"""
+            + script.group(1)
+            + """
+assert.strictEqual(jsonAreas.length, 2);
+jsonAreas[1].value = '[not json';
+assert.doesNotThrow(() => handlers['run:click']());
+assert(elements.get('report').textContent.includes('JSON edit failed:'));
+assert(elements.get('report').textContent.includes('actuals.csv / actuals'));
+assert.deepStrictEqual(window.__WORKFLOW__.tables[1].rows, [{ SKU: 'A1', Qty: '10' }]);
+""",
+            encoding="utf-8",
+        )
+        result = subprocess.run(["node", str(runtime_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+
+
 def test_local_html_runtime_rejects_pasted_csv_with_duplicate_headers() -> None:
     html = build_excel_workflow_html_app(
         "Compare these spreadsheets and generate a local HTML app",

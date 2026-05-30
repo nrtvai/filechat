@@ -993,8 +993,11 @@ function CitationReadinessNotice({ citations, files }: { citations: Citation[]; 
 }
 
 function NoAnswerNotice({ unavailableFileIds = [], files = [], grounding }: { unavailableFileIds?: string[]; files?: FileRecord[]; grounding?: Message["grounding"] }) {
-  const notice = grounding?.notice?.trim() || "No answer was generated.";
-  const detail = grounding?.detail?.trim() || "FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.";
+  const hasNoLocalSourceContext = files.length === 0 && unavailableFileIds.length === 0;
+  const notice = grounding?.notice?.trim() || (hasNoLocalSourceContext ? "No sourced answer was generated." : "No answer was generated.");
+  const detail = grounding?.detail?.trim() || (hasNoLocalSourceContext
+    ? "FileChat did not return answer text or local source evidence for this turn."
+    : "FileChat did not return answer text for this turn. Re-ask or check sources before relying on it.");
   return (
     <div className="source-strip no-citations no-answer" role="status" aria-live="polite" aria-label="No answer generated">
       <strong>{notice}</strong>
