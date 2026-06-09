@@ -1712,6 +1712,89 @@ button { cursor: pointer; }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.workflow-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 860px);
+  align-content: start;
+  justify-content: center;
+  gap: 18px;
+}
+.workflow-header {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 16px;
+}
+.workflow-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.workflow-brand h1 {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+.workflow-form {
+  display: grid;
+  gap: 14px;
+}
+.workflow-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+.workflow-form textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  border: 1px solid var(--rule-2);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 12px;
+  font: inherit;
+  line-height: 1.45;
+}
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.workflow-actions button,
+.download-link {
+  min-height: 38px;
+  border-radius: 8px;
+  border: 1px solid var(--rule-2);
+  background: var(--ink);
+  color: var(--bg);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.workflow-actions button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+.workflow-output {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  min-height: 54px;
+}
+.workflow-output ol {
+  margin: 0;
+  padding-left: 22px;
+}
+.error-text {
+  color: var(--err);
+  font-weight: 700;
+}
+
 @media (max-width: 900px) {
   .rail { display: none; }
   .right-panel { display: none; }
@@ -1720,4 +1803,5 @@ button { cursor: pointer; }
   .processing-view, .turns, .composer-dock { padding-left: 18px; padding-right: 18px; }
   .file-row { grid-template-columns: 42px minmax(0, 1fr); }
   .file-row > span { grid-column: 2; }
+  .workflow-shell { padding: 18px; }
 }
