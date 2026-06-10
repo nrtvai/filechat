@@ -18,6 +18,8 @@ dist/
 .vite/
 test-results/
 playwright-report/
+reports/
+.uv-cache/
 *.tsbuildinfo
 *.config.js
 !eslint.config.js
