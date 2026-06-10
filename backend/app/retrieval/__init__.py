@@ -78,7 +78,6 @@ from ..artifact_advisor import (
 )
 from ..artifacts import ValidatedArtifact, validate_artifacts_with_report
 from ..database import connect
-from ..excel_workflow import build_excel_workflow_answer, build_excel_workflow_html_app
 from ..models import CitationOut
 from ..openrouter import ChatResult, OpenRouterClient, OpenRouterMissingKey, OpenRouterResponseError
 from ..orchestration import build_preflight, is_broad_create_request
@@ -157,7 +156,6 @@ from .run_support import (
     _writer_packet,
 )
 from .orchestrator import (
-    _try_excel_workflow_answer,
     answer,
     answer_legacy,
     execute_agent_run,

@@ -5,10 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
-    "dev:spreadsheet-automator": "vite --host 127.0.0.1 --port 5174",
     "dev:api": "uv run uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000",
     "dev:all": "concurrently -k -n api,web -c blue,green \"npm run dev:api\" \"npm run dev\"",
-    "build:spreadsheet-automator": "tsc -b && vite build",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",

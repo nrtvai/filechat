@@ -99,14 +99,11 @@ API: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 Local data is stored in `.filechat/` by default. Override with `FILECHAT_DATA_DIR`.
 
-### Two products, one repository
+### Product scope
 
-This repo intentionally hosts two distinct product lanes (see [`docs/four-lane-product-loop.md`](docs/four-lane-product-loop.md)):
+This repo is **FileChat Original** — grounded document chat with citations, served at `/` by `npm run dev`.
 
-- **FileChat Original** — grounded document chat with citations. Served at `/` by `npm run dev`.
-- **Spreadsheet Workflow Automator** — multi-CSV/XLSX workflow automation. Served at `/workflows` in the main app, or standalone via `npm run dev:spreadsheet-automator` (port 5174). Its code lives in `src/spreadsheetAutomator/` and `backend/app/excel_workflow.py` and must not leak into FileChat Q&A surfaces.
-
-The current decision is to keep both lanes in this repository while the boundary stays clean; see [`docs/decisions/0001-spreadsheet-lane-stays-in-repo.md`](docs/decisions/0001-spreadsheet-lane-stays-in-repo.md) for the criteria that would trigger a repo split.
+The Spreadsheet Workflow Automator, which previously lived here as a second product lane, was extracted to [`nrtvai/spreadsheet-automator`](https://github.com/nrtvai/spreadsheet-automator) in June 2026. See [`docs/decisions/0002-spreadsheet-lane-extracted.md`](docs/decisions/0002-spreadsheet-lane-extracted.md). `backend/app/spreadsheet_mode.py` remains here because FileChat's ingest uses it to summarize uploaded spreadsheets for document Q&A.
 
 ## Environment
 
@@ -169,7 +166,6 @@ This repository is intended to protect `main` with pull-request review rather th
 backend/app/             FastAPI app, runtime, retrieval package, orchestration, artifact validation
 backend/tests/           Backend regression and API coverage
 src/                     FileChat React app (App.tsx coordinator + components/)
-src/spreadsheetAutomator/ Spreadsheet Workflow Automator app and validation
 scripts/dod/             Definition-of-done proof scripts for both lanes
 tests/e2e/               Playwright end-to-end coverage
 docs/                    Research notes, planning docs, decision records

@@ -1,7 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { api } from "./api";
-import { SpreadsheetWorkflowAutomatorApp } from "./spreadsheetAutomator/SpreadsheetWorkflowAutomatorApp";
 import { EditionControls } from "./components/EditionControls";
 import { LeftRail } from "./components/LeftRail";
 import { RightPanel } from "./components/RightPanel";
@@ -13,9 +12,6 @@ import type { AgentRun, Artifact, Citation, ContextProfile, CurrentUser, Edition
 const appVersion = import.meta.env.VITE_APP_VERSION ?? "0.0.0";
 
 export function App() {
-  if (typeof window !== "undefined" && window.location.pathname.startsWith("/workflows")) {
-    return <SpreadsheetWorkflowAutomatorApp />;
-  }
   return <FileChatApp />;
 }
 

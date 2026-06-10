@@ -1,6 +1,6 @@
 # 0001 — Spreadsheet Workflow Automator stays in this repository (for now)
 
-Status: accepted (2026-06-11)
+Status: superseded by [0002-spreadsheet-lane-extracted.md](0002-spreadsheet-lane-extracted.md) (2026-06-11)
 
 ## Context
 

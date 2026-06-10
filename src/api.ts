@@ -10,33 +10,6 @@ export interface TestModeOverride {
   role: MembershipRole;
 }
 
-export interface WorkflowFileText {
-  file_id?: string | null;
-  file_name: string;
-  text: string;
-}
-
-export interface WorkflowRequest {
-  description: string;
-  file_texts?: WorkflowFileText[];
-  sources?: Record<string, unknown>[];
-}
-
-export interface WorkflowInterviewResponse {
-  status: "needs_interview" | "ready_to_generate";
-  ready_to_generate: boolean;
-  required_questions: string[];
-}
-
-export interface WorkflowGenerateResponse {
-  status: "needs_interview" | "ready_to_generate" | "generated";
-  ready_to_generate: boolean;
-  required_questions: string[];
-  filename?: string;
-  content_type?: string;
-  html?: string;
-}
-
 let memoryTestMode: TestModeOverride | null = null;
 
 function localStorageGet(key: string): string | null {
@@ -147,10 +120,6 @@ export const api = {
     localStorageRemove(TEST_ROLE_KEY);
   },
   health: () => request<{ status: string }>("/health"),
-  workflowInterview: (body: WorkflowRequest) =>
-    request<WorkflowInterviewResponse>("/workflows/interview", { method: "POST", body: JSON.stringify(body) }),
-  workflowGenerate: (body: WorkflowRequest) =>
-    request<WorkflowGenerateResponse>("/workflows/generate", { method: "POST", body: JSON.stringify(body) }),
   me: () => request<CurrentUser>("/me"),
   settings: () => request<Settings>("/settings"),
   contextProfile: () => request<ContextProfile>("/context/profile"),

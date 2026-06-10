@@ -7,7 +7,7 @@ Rule: do not merge lanes or rename them into generic chat modes.
 ## Correct taxonomy
 
 1. **Filechat Original** — grounded local document/file chat with citations.
-2. **Excel Workflow Automation** — separate spreadsheet automation product/mode for multi-CSV/XLSX workflows; not Filechat Q&A. If the UX/codebase cannot keep this distinct, split it into a new repository/product.
+2. **Excel Workflow Automation** — extracted to `nrtvai/spreadsheet-automator` (June 2026; see `docs/decisions/0002-spreadsheet-lane-extracted.md`). The split this lane definition anticipated has happened.
 3. **Searchchat Original** — LLM-powered search chat using search/retrieval plus LLM synthesis; not evidence-only.
 4. **ETF-Correlation Spotter** — Searchchat product/mode that finds ETF/asset/market correlations, signals, and alerts. Separate if needed.
 
