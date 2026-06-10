@@ -319,7 +319,7 @@ describe("generateLocalHtmlWorkflowApp", () => {
     expect(app.html).toContain("function previewFinalOutputCsv()");
     vi.stubGlobal("window", { CSS: { escape: (value: string) => value } });
     vi.stubGlobal("document", {
-      querySelector: vi.fn((selector: string) => (selector.includes('data-workflow-input=\"orders.csv\"') ? fileInput : null)),
+      querySelector: vi.fn((selector: string) => (selector.includes('data-workflow-input="orders.csv"') ? fileInput : null)),
       querySelectorAll: vi.fn(() => [fileInput]),
       getElementById: vi.fn((id: string) => (id === "output-preview" ? outputPreview : status)),
       createElement: vi.fn(() => ({ click: clickSpy })),
